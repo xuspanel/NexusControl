@@ -15,6 +15,7 @@ import {
   Globe
 } from 'lucide-react';
 import ThemeToggle from './ThemeToggle';
+import OsBadge from './OsBadge';
 
 export default function HeaderProfile({ profile, telemetry, connected, onLogout, onRefresh }) {
   const [copiedIp, setCopiedIp] = useState(null);
@@ -59,10 +60,18 @@ export default function HeaderProfile({ profile, telemetry, connected, onLogout,
                   {connected ? 'LIVE 1.5s' : 'POLLING'}
                 </span>
               </div>
-              <p className="text-xs text-zinc-500 dark:text-zinc-400 flex items-center gap-2">
-                <span>{profile?.os || 'Ubuntu Linux'}</span>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400 flex items-center gap-2 flex-wrap">
+                <span className="inline-flex items-center gap-1.5 font-medium text-zinc-700 dark:text-zinc-300">
+                  <OsBadge osId={profile?.osId} osName={profile?.os} className="w-4 h-4 shrink-0 shadow-sm rounded-full" />
+                  <span>{profile?.os || 'Ubuntu Linux'}</span>
+                </span>
                 <span className="text-zinc-400 dark:text-zinc-600">•</span>
-                <span className="font-mono text-zinc-600 dark:text-zinc-400">{profile?.kernel || '7.0.0-1009-oracle'} ({profile?.arch || 'aarch64'})</span>
+                <span className="font-mono text-zinc-600 dark:text-zinc-400 inline-flex items-center gap-1.5">
+                  <span className="px-1.5 py-0.2 rounded bg-zinc-100 dark:bg-zinc-800 text-[10px] text-zinc-600 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-700/60 uppercase font-sans font-semibold">
+                    {profile?.osFamily || 'debian'}
+                  </span>
+                  <span>{profile?.kernel || '7.0.0-1009-oracle'} ({profile?.arch || 'aarch64'})</span>
+                </span>
               </p>
             </div>
           </div>

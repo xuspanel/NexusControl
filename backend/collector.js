@@ -1,6 +1,7 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const { exec, execSync } = require('node:child_process');
+const osAdapter = require('./osAdapter');
 
 let prevCpu = null;
 let prevNet = null;
@@ -419,7 +420,12 @@ function getSystemProfile() {
 
   return {
     hostname: os.hostname(),
-    os: cachedOsInfo,
+    os: osAdapter.OS_PRETTY_NAME || cachedOsInfo,
+    osFamily: osAdapter.OS_FAMILY,
+    osId: osAdapter.OS_ID,
+    osVersion: osAdapter.OS_VERSION,
+    osName: osAdapter.OS_NAME,
+    systemdAvailable: osAdapter.isSystemdAvailable(),
     kernel: os.release(),
     arch: os.arch(),
     cpuModel: cachedCpuModel,

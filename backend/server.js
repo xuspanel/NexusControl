@@ -8,6 +8,7 @@ const path = require('node:path');
 const fs = require('node:fs');
 
 const collector = require('./collector');
+const osAdapter = require('./osAdapter');
 const history = require('./history');
 const services = require('./services');
 const security = require('./security');
@@ -311,15 +312,30 @@ app.post('/api/system/processes/signal', auth.authMiddleware, async (req, res) =
 
 app.get('/api/system/services', auth.authMiddleware, async (req, res) => {
   try {
+    if (!osAdapter.isSystemdAvailable()) {
+      return res.status(501).json({
+        supported: false,
+        error: 'Systemd is not available or supported on this operating system (systemctl not found).'
+      });
+    }
     const list = await services.getAllServices();
     res.json(list);
   } catch (err) {
+    if (err.statusCode === 501 || err.notImplemented) {
+      return res.status(501).json({ supported: false, error: err.message });
+    }
     res.status(500).json({ error: err.message });
   }
 });
 
 app.post('/api/system/services/action', auth.authMiddleware, async (req, res) => {
   try {
+    if (!osAdapter.isSystemdAvailable()) {
+      return res.status(501).json({
+        supported: false,
+        error: 'Systemd is not available or supported on this operating system (systemctl not found).'
+      });
+    }
     const { serviceId, action } = req.body;
     if (!serviceId || !action) {
       return res.status(400).json({ error: 'serviceId and action are required.' });
@@ -335,6 +351,9 @@ app.post('/api/system/services/action', auth.authMiddleware, async (req, res) =>
     });
     res.json(result);
   } catch (err) {
+    if (err.statusCode === 501 || err.notImplemented) {
+      return res.status(501).json({ supported: false, error: err.message });
+    }
     res.status(400).json({ error: err.message });
   }
 });
@@ -392,6 +411,7 @@ setupTerminalWebSocket(server, auth, ipWhitelist);
 
 if (process.env.NODE_ENV !== 'test' && require.main === module) {
   server.listen(PORT, HOST, () => {
+    console.log(`[OS-Adapter] Detected OS: ${osAdapter.OS_PRETTY_NAME} (${osAdapter.OS_FAMILY.toUpperCase()} family) - systemd: ${osAdapter.isSystemdAvailable() ? 'available' : 'unavailable'}`);
     console.log(`NexusControl Hardened Backend daemon listening on http://${HOST}:${PORT}`);
   });
 }

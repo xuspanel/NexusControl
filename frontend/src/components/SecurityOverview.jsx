@@ -40,7 +40,7 @@ export default function SecurityOverview({ token }) {
     return () => clearInterval(interval);
   }, [token]);
 
-  const ufw = securityData?.ufw;
+  const ufw = securityData?.firewall || securityData?.ufw;
   const ports = securityData?.ports || [];
   const sshFails = securityData?.sshFails;
 
@@ -77,7 +77,7 @@ export default function SecurityOverview({ token }) {
                 activeTab === 'ufw' ? 'bg-emerald-600 text-white font-medium' : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
               }`}
             >
-              Firewall (UFW)
+              Firewall ({ufw?.type === 'firewalld' ? 'firewalld' : 'UFW'})
             </button>
             <button
               onClick={() => setActiveTab('ssh')}
@@ -134,7 +134,7 @@ export default function SecurityOverview({ token }) {
         </div>
       )}
 
-      {/* Tab 2: UFW Status & Rules */}
+      {/* Tab 2: Firewall Status & Rules */}
       {activeTab === 'ufw' && (
         <div className="space-y-4">
           <div className="flex items-center justify-between p-3 rounded-lg bg-zinc-50 dark:bg-[#09090b] border border-zinc-200 dark:border-zinc-800 transition-colors">
@@ -144,7 +144,7 @@ export default function SecurityOverview({ token }) {
               ) : (
                 <Unlock className="w-4 h-4 text-amber-600 dark:text-amber-400" />
               )}
-              <span className="text-xs font-medium text-zinc-900 dark:text-zinc-200">Uncomplicated Firewall (UFW)</span>
+              <span className="text-xs font-medium text-zinc-900 dark:text-zinc-200">{ufw?.name || 'Firewall'}</span>
             </div>
             <span className={`px-2 py-0.5 rounded text-[11px] font-mono border ${
               ufw?.active 

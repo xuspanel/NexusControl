@@ -16,6 +16,8 @@ export default function ServiceSupervisor({ token, onShowToast }) {
   const [loading, setLoading] = useState(false);
   const [actionInProgress, setActionInProgress] = useState(null);
   const [pendingAction, setPendingAction] = useState(null);
+  const [notSupported, setNotSupported] = useState(false);
+  const [supportMessage, setSupportMessage] = useState('');
 
   const fetchServices = async () => {
     if (!token) return;
@@ -24,9 +26,17 @@ export default function ServiceSupervisor({ token, onShowToast }) {
       const res = await fetch('/api/system/services', {
         headers: { Authorization: `Bearer ${token}` }
       });
+      if (res.status === 501) {
+        const data = await res.json().catch(() => ({}));
+        setNotSupported(true);
+        setSupportMessage(data.error || 'Systemd Supervisor is not supported on this host (systemctl not found).');
+        setServices([]);
+        return;
+      }
       if (res.ok) {
         const data = await res.json();
-        setServices(data);
+        setNotSupported(false);
+        setServices(Array.isArray(data) ? data : []);
       }
     } catch (err) {
       console.error('Failed to fetch services:', err);
@@ -103,8 +113,22 @@ export default function ServiceSupervisor({ token, onShowToast }) {
         </button>
       </div>
 
-      {/* Services Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+      {/* Systemd Unavailable Fallback */}
+      {notSupported ? (
+        <div className="p-4 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-start space-x-3 text-xs">
+          <AlertCircle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+          <div>
+            <h3 className="font-semibold text-amber-700 dark:text-amber-300 uppercase tracking-wide">
+              Systemd Supervisor Unavailable
+            </h3>
+            <p className="text-zinc-600 dark:text-zinc-400 mt-1 leading-relaxed">
+              {supportMessage || 'This Linux system does not run systemd or systemctl is unavailable (e.g., Alpine OpenRC, lightweight containers). Daemon lifecycle supervisor actions are disabled.'}
+            </p>
+          </div>
+        </div>
+      ) : (
+        /* Services Grid */
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
         {services.map((svc) => {
           const isActive = svc.activeState === 'active';
           const isBusy = actionInProgress === svc.id;
@@ -177,6 +201,7 @@ export default function ServiceSupervisor({ token, onShowToast }) {
           );
         })}
       </div>
+      )}
 
       {/* Confirmation Modal */}
       <ConfirmModal

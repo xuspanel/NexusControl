@@ -2,6 +2,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const { exec, execSync } = require('node:child_process');
 const osAdapter = require('./osAdapter');
+const dockerEngine = require('./dockerEngine');
 
 let prevCpu = null;
 let prevNet = null;
@@ -408,7 +409,8 @@ function getFullTelemetry() {
     memory,
     disk,
     network,
-    system: loadUptime
+    system: loadUptime,
+    containers: dockerEngine.getCachedContainerMetrics()
   };
 }
 

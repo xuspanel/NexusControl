@@ -184,6 +184,11 @@ Comprehensive regression and security test suite testing backend systems with ze
 | `/api/terminal/sessions/:id`| `DELETE`| Bearer Token | Immediately destroys and terminates a running terminal session. |
 | `/api/audit/logs` | `GET` | Bearer Token | Returns paginated audit events with action/IP filtering and search. |
 | `/api/audit/verify` | `GET` | Bearer Token | Performs full cryptographic SHA-256 verification of the audit chain. |
+| `/api/docker/status` | `GET` | Bearer Token | Returns Docker daemon availability, engine version, platform info, and container counts. |
+| `/api/docker/containers` | `GET` | Bearer Token | Lists all containers with live cached resource metrics (CPU %, RAM, Network I/O). |
+| `/api/docker/containers/:id` | `GET` | Bearer Token | Inspects container configuration, environment variables, mounts, and network aliases. |
+| `/api/docker/containers/:id/action` | `POST` | Bearer Token | Dispatches container lifecycle action (`start`, `stop`, `restart`, `kill`) and appends `DOCKER_*` event to audit ledger. |
+| `/api/docker/containers/:id` | `DELETE` | Bearer Token | Removes container (optional `?force=true&v=true`) and appends `DOCKER_DELETE` event to audit ledger. |
 
 ---
 
@@ -239,10 +244,13 @@ Because the NexusControl backend runs with `root` privileges to supervise system
 │   ├── package.json              # Backend package dependencies (express, node-pty, jest, etc.)
 │   ├── jest.config.js            # Jest test framework configuration
 │   ├── server.js                 # HTTP & WebSocket Server entry point (:8787)
+│   ├── osAdapter.js              # OS-agnostic command abstraction engine (/etc/os-release)
 │   ├── auth.js                   # 3-Step Defense-in-Depth Authentication Pipeline
 │   ├── ipWhitelist.js            # IP Whitelisting interceptor middleware & helper
 │   ├── auditLogger.js            # Cryptographic append-only SHA-256 hash chaining engine
 │   ├── auditRouter.js            # REST API router mounted at /api/audit/*
+│   ├── dockerEngine.js           # Native zero-dependency Docker socket client & telemetry sampler
+│   ├── dockerRouter.js           # REST API router mounted at /api/docker/*
 │   ├── terminalSessions.js       # Persistent tmux-style PTY session manager & ring buffer
 │   ├── terminalWs.js             # Hardened WebSocket server with upgrade gatekeeper
 │   ├── terminalPresets.js        # SQLite-backed command presets library
@@ -262,7 +270,9 @@ Because the NexusControl backend runs with `root` privileges to supervise system
 │   │   ├── setup.js              # Test environment & scaffold initialization
 │   │   ├── auth.test.js          # Authentication pipeline tests
 │   │   ├── audit.test.js         # Cryptographic audit chaining & tamper tests
+│   │   ├── docker.test.js        # Docker socket & audit integration tests
 │   │   ├── files.test.js         # Filesystem operations & guardrail tests
+│   │   ├── osAdapter.test.js     # OS detection & abstraction engine tests
 │   │   ├── telemetry.test.js     # Hardware profile & metrics tests
 │   │   └── terminal.test.js      # PTY session management & ring buffer tests
 │   └── node_modules/             # Installed backend dependencies

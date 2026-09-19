@@ -64,7 +64,7 @@ const lightTerminalTheme = {
 const STORAGE_TABS_KEY = 'nexus_terminal_tabs';
 const STORAGE_ACTIVE_TAB_KEY = 'nexus_terminal_active_tab';
 
-export default function TerminalView({ token, onShowToast }) {
+export default function TerminalView({ token, onShowToast, initialCommand, onClearInitialCommand }) {
   const { resolvedTheme } = useTheme();
   const containerRef = useRef(null);
   const terminalInstanceRef = useRef(null);
@@ -74,13 +74,26 @@ export default function TerminalView({ token, onShowToast }) {
   const wsRef = useRef(null);
   const reconnectTimeoutRef = useRef(null);
 
-  // Dynamically update terminal palette on theme change without reload
+  // Dynamic theme update for Xterm canvas
   useEffect(() => {
     if (terminalInstanceRef.current) {
       terminalInstanceRef.current.options.theme =
         resolvedTheme === 'dark' ? darkTerminalTheme : lightTerminalTheme;
     }
   }, [resolvedTheme]);
+
+  // Initial command execution bridge (e.g. docker exec -it <container> /bin/sh)
+  useEffect(() => {
+    if (initialCommand && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      const timer = setTimeout(() => {
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({ type: 'input', data: `${initialCommand}\r` }));
+          onClearInitialCommand?.();
+        }
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+  }, [initialCommand, connectionStatus]);
 
   // Tabs state
   const [tabs, setTabs] = useState(() => {

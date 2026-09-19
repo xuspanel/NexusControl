@@ -22,6 +22,8 @@ const ipWhitelist = require('./ipWhitelist');
 const { ipWhitelistMiddleware } = ipWhitelist;
 const auditLogger = require('./auditLogger');
 const auditRouter = require('./auditRouter');
+const dockerRouter = require('./dockerRouter');
+const dockerEngine = require('./dockerEngine');
 
 // Ensure system storage directories exist on boot
 trash.initTrash().then(() => console.log('[BOOT] Trash directory initialized at /opt/NexusControl/.trash')).catch(err => console.error('[BOOT ERROR] Trash init:', err));
@@ -385,6 +387,13 @@ app.use('/api/terminal', auth.authMiddleware, terminalRouter);
 
 // Protected Tamper-Evident Audit Log Endpoints
 app.use('/api/audit', auth.authMiddleware, auditRouter);
+
+// Protected Enterprise Docker Engine Endpoints
+app.use('/api/docker', auth.authMiddleware, dockerRouter);
+
+if (process.env.NODE_ENV !== 'test') {
+  dockerEngine.startBackgroundSampling(3500);
+}
 
 // Health check endpoint for internal monitoring
 app.get('/health', (req, res) => {

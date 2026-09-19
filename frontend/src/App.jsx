@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Activity, FolderTree, Terminal, ShieldCheck } from 'lucide-react';
+import { Activity, FolderTree, Terminal, ShieldCheck, Boxes } from 'lucide-react';
 import { useTelemetry } from './hooks/useTelemetry';
 import AuthGate from './components/AuthGate';
 import HeaderProfile from './components/HeaderProfile';
@@ -13,6 +13,7 @@ import ToastNotification from './components/ToastNotification';
 import FileManager from './components/files/FileManager';
 import TerminalView from './components/terminal/TerminalView';
 import AuditLogView from './components/audit/AuditLogView';
+import DockerView from './components/docker/DockerView';
 
 export default function App() {
   const {
@@ -29,13 +30,20 @@ export default function App() {
     refreshProfile
   } = useTelemetry();
 
-  const [activeTab, setActiveTab] = useState('telemetry'); // 'telemetry' | 'files'
+  const [activeTab, setActiveTab] = useState('telemetry'); // 'telemetry' | 'files' | 'docker' | 'terminal' | 'audit'
   const [toast, setToast] = useState(null);
+  const [pendingTerminalCommand, setPendingTerminalCommand] = useState(null);
 
   const showToast = React.useCallback((message, type = 'info') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 4000);
   }, []);
+
+  const handleExecContainer = (containerName) => {
+    setPendingTerminalCommand(`docker exec -it ${containerName} /bin/sh`);
+    setActiveTab('terminal');
+    showToast(`Opening terminal shell into container: ${containerName}`, 'info');
+  };
 
   if (isAuthChecking) {
     return (
@@ -100,6 +108,21 @@ export default function App() {
               <span>Files Manager</span>
               <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-700">
                 root
+              </span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('docker')}
+              className={`flex items-center gap-2 px-4 py-3 text-xs font-medium border-b-2 transition-colors ${
+                activeTab === 'docker'
+                  ? 'border-emerald-500 text-emerald-600 dark:text-emerald-400 bg-emerald-500/5'
+                  : 'border-transparent text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800/40'
+              }`}
+            >
+              <Boxes className="w-4 h-4" />
+              <span>Docker</span>
+              <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-700">
+                {telemetry?.containers?.summary?.running ?? 0}
               </span>
             </button>
 
@@ -174,9 +197,23 @@ export default function App() {
         <main className="flex-1 max-w-7xl w-full mx-auto px-4 lg:px-8 py-4">
           <FileManager token={token} onShowToast={showToast} />
         </main>
+      ) : activeTab === 'docker' ? (
+        <main className="flex-1 max-w-7xl w-full mx-auto px-4 lg:px-8 py-4">
+          <DockerView
+            token={token}
+            telemetry={telemetry}
+            onShowToast={showToast}
+            onExecContainer={handleExecContainer}
+          />
+        </main>
       ) : activeTab === 'terminal' ? (
         <main className="flex-1 max-w-7xl w-full mx-auto px-4 lg:px-8 py-4 flex flex-col">
-          <TerminalView token={token} onShowToast={showToast} />
+          <TerminalView
+            token={token}
+            onShowToast={showToast}
+            initialCommand={pendingTerminalCommand}
+            onClearInitialCommand={() => setPendingTerminalCommand(null)}
+          />
         </main>
       ) : (
         <main className="flex-1 max-w-7xl w-full mx-auto px-4 lg:px-8 py-4">

@@ -1,0 +1,19 @@
+[Unit]
+Description=NexusControl VPS Monitoring & Operations Dashboard
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/NexusControl
+ExecStart=/usr/bin/node /opt/NexusControl/backend/server.js
+Restart=always
+RestartSec=5
+EnvironmentFile=/opt/NexusControl/.env
+LimitNOFILE=65536
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=nexuscontrol
+
+[Install]
+WantedBy=multi-user.target

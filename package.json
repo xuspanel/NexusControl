@@ -1,0 +1,15 @@
+{
+  "name": "nexuscontrol",
+  "version": "1.0.0",
+  "description": "Enterprise VPS Monitoring & Operations Dashboard",
+  "main": "backend/server.js",
+  "scripts": {
+    "start": "node backend/server.js",
+    "test": "npm --prefix backend test",
+    "generate-test": "node scripts/generate-test.js",
+    "build:frontend": "cd frontend && npm run build"
+  },
+  "keywords": ["vps", "monitoring", "dashboard", "telemetry"],
+  "author": "",
+  "license": "ISC"
+}

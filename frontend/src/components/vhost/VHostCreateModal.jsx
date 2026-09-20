@@ -28,12 +28,16 @@ export default function VHostCreateModal({ isOpen, onClose, token, onCreated, on
   // Form State
   const [domain, setDomain] = useState('');
   const [type, setType] = useState('proxy'); // 'proxy' | 'static' | 'redirect'
-  const [target, setTarget] = useState('http://127.0.0.1:8888');
+  const [target, setTarget] = useState('');
   const [supportWebSocket, setSupportWebSocket] = useState(true);
   const [supportSse, setSupportSse] = useState(true);
   const [clientMaxBodySize, setClientMaxBodySize] = useState('0');
   const [webRoot, setWebRoot] = useState('');
   const [redirectCode, setRedirectCode] = useState(301);
+
+  // Smart Port Inspector State
+  const [suggestedPort, setSuggestedPort] = useState(null);
+  const [portStatus, setPortStatus] = useState(null); // { checking: boolean, port: number, available: boolean, suggestedPort: number }
 
   // SSL Options
   const [autoSsl, setAutoSsl] = useState(false);
@@ -52,7 +56,7 @@ export default function VHostCreateModal({ isOpen, onClose, token, onCreated, on
       setError(null);
       setDomain('');
       setType('proxy');
-      setTarget('http://127.0.0.1:8888');
+      setTarget('');
       setSupportWebSocket(true);
       setSupportSse(true);
       setClientMaxBodySize('0');
@@ -61,9 +65,11 @@ export default function VHostCreateModal({ isOpen, onClose, token, onCreated, on
       setAutoSsl(false);
       setEmail('');
       setDnsCheckResult(null);
+      setPortStatus(null);
 
-      // Fetch running Docker containers for quick proxy pairing
+      // Fetch running Docker containers and next available port
       fetchDockerContainers();
+      fetchNextPort();
     }
   }, [isOpen]);
 
@@ -90,6 +96,79 @@ export default function VHostCreateModal({ isOpen, onClose, token, onCreated, on
       setLoadingContainers(false);
     }
   };
+
+  const fetchNextPort = async () => {
+    try {
+      const res = await fetch('/api/vhosts/next-port', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSuggestedPort(data.suggestedPort);
+      }
+    } catch (err) {
+      console.warn('Could not fetch next port:', err.message);
+    }
+  };
+
+  const extractPort = (val) => {
+    if (!val) return null;
+    const str = String(val).trim();
+    if (/^\d+$/.test(str)) {
+      const p = parseInt(str, 10);
+      return (p >= 1 && p <= 65535) ? p : null;
+    }
+    const match = str.match(/:(\d+)(?:\/|$)/);
+    if (match) {
+      const p = parseInt(match[1], 10);
+      return (p >= 1 && p <= 65535) ? p : null;
+    }
+    return null;
+  };
+
+  // Debounced (300ms) port inspector
+  useEffect(() => {
+    if (type !== 'proxy' || !target.trim()) {
+      setPortStatus(null);
+      return;
+    }
+
+    const p = extractPort(target);
+    if (!p) {
+      setPortStatus(null);
+      return;
+    }
+
+    setPortStatus(prev => ({
+      checking: true,
+      port: p,
+      available: prev?.port === p ? prev.available : null,
+      suggestedPort: prev?.suggestedPort || suggestedPort
+    }));
+
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/vhosts/inspect-port?port=${p}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setPortStatus({
+            checking: false,
+            port: data.port,
+            available: data.available,
+            suggestedPort: data.suggestedPort
+          });
+        } else {
+          setPortStatus(null);
+        }
+      } catch (_) {
+        setPortStatus(null);
+      }
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [target, type, token, suggestedPort]);
 
   // Run pre-flight DNS check when entering step 3 with a valid domain
   const runDnsCheck = async () => {
@@ -124,10 +203,6 @@ export default function VHostCreateModal({ isOpen, onClose, token, onCreated, on
       }
       setStep(2);
     } else if (step === 2) {
-      if (type === 'proxy' && !target.trim()) {
-        setError('Upstream target URL or port is required.');
-        return;
-      }
       if (type === 'static' && !webRoot.trim()) {
         setError('Web root directory path is required.');
         return;
@@ -193,6 +268,9 @@ export default function VHostCreateModal({ isOpen, onClose, token, onCreated, on
       }
 
       onShowToast?.(`Virtual host for ${cleanDomain} created and validated successfully!`, 'success');
+      if (data.portWarning) {
+        onShowToast?.(data.portWarning, 'warning');
+      }
       if (data.ssl?.warning) {
         onShowToast?.(data.ssl.warning, 'warning');
       }
@@ -361,19 +439,63 @@ export default function VHostCreateModal({ isOpen, onClose, token, onCreated, on
                   </div>
 
                   <div>
-                    <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">
-                      Upstream Target URL / Port <span className="text-rose-500">*</span>
-                    </label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                        Upstream Target URL / Port
+                      </label>
+                      {suggestedPort && (
+                        <span className="text-[11px] font-mono text-zinc-500 dark:text-zinc-400">
+                          Suggested free: <strong className="text-emerald-600 dark:text-emerald-400">{suggestedPort}</strong>
+                        </span>
+                      )}
+                    </div>
                     <input
                       type="text"
                       value={target}
                       onChange={(e) => setTarget(e.target.value)}
-                      placeholder="http://127.0.0.1:8888"
+                      placeholder={suggestedPort ? `Auto-assign next free port (e.g. ${suggestedPort})` : "Auto-assign next free port (e.g. 8081)"}
                       className="w-full px-3.5 py-2.5 rounded-lg bg-zinc-50 dark:bg-[#09090b] border border-zinc-200 dark:border-zinc-800 text-sm font-mono text-zinc-900 dark:text-zinc-100 focus:outline-none focus:border-emerald-500"
                     />
-                    <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1">
-                      Local loopback service or container socket (e.g., http://127.0.0.1:8888).
-                    </p>
+
+                    {/* Real-time Port Inspector Badge */}
+                    <div className="mt-2 min-h-[26px]">
+                      {portStatus?.checking && (
+                        <div className="flex items-center gap-1.5 text-xs text-zinc-400 font-mono">
+                          <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-500" />
+                          <span>Inspecting port {portStatus.port} availability...</span>
+                        </div>
+                      )}
+
+                      {!portStatus?.checking && portStatus?.available === true && (
+                        <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-mono bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                          <span>✓ Port {portStatus.port} is available</span>
+                        </div>
+                      )}
+
+                      {!portStatus?.checking && portStatus?.available === false && (
+                        <div className="flex flex-wrap items-center gap-2 p-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-400 text-xs font-mono">
+                          <div className="flex items-center gap-1.5">
+                            <AlertTriangle className="w-4 h-4 shrink-0 text-amber-500" />
+                            <span>⚠ Port {portStatus.port} is already in use by another service! Suggested free port: <strong className="text-zinc-900 dark:text-zinc-100">{portStatus.suggestedPort}</strong></span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setTarget(`http://127.0.0.1:${portStatus.suggestedPort}`)}
+                            className="px-2 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-800 dark:text-amber-200 border border-amber-500/30 text-[11px] font-semibold cursor-pointer transition-colors"
+                          >
+                            [Use {portStatus.suggestedPort}]
+                          </button>
+                        </div>
+                      )}
+
+                      {!target.trim() && (
+                        <div className="flex items-center gap-1.5 text-[11px] font-mono text-sky-600 dark:text-sky-400 bg-sky-500/10 border border-sky-500/20 px-2.5 py-1 rounded-md">
+                          <Info className="w-3.5 h-3.5 shrink-0" />
+                          <span>ℹ Will automatically bind to next free port ({suggestedPort || '8080+'})</span>
+                        </div>
+                      )}
+                    </div>
                   </div>
 
                   {/* Advanced Proxy Toggles */}

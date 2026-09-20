@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const vhostEngine = require('./vhostEngine');
+const portInspector = require('./portInspector');
 const auditLogger = require('./auditLogger');
 
 /**
@@ -29,7 +30,43 @@ router.get('/dns-check/:domain', async (req, res) => {
   }
 });
 
-// 3. Get Specific Virtual Host Configuration
+// 3. Inspect Port Availability & Alternative Allocation
+router.get('/inspect-port', async (req, res) => {
+  try {
+    const rawPort = req.query.port;
+    const port = Number(rawPort);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      return res.status(400).json({ error: 'Port must be an integer between 1 and 65535.' });
+    }
+
+    const isAvailable = await portInspector.checkPortAvailable(port);
+    const allocatedPorts = portInspector.getAllocatedVHostPorts();
+    const isAllocated = allocatedPorts.has(port);
+
+    const available = isAvailable && !isAllocated;
+    const suggestedPort = available ? port : await portInspector.findNextAvailablePort();
+
+    res.json({
+      port,
+      available,
+      suggestedPort
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 4. Get Next Recommended Free Port
+router.get('/next-port', async (req, res) => {
+  try {
+    const suggestedPort = await portInspector.findNextAvailablePort();
+    res.json({ suggestedPort });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 5. Get Specific Virtual Host Configuration
 router.get('/:domain', (req, res) => {
   try {
     const { domain } = req.params;
@@ -40,10 +77,10 @@ router.get('/:domain', (req, res) => {
   }
 });
 
-// 4. Create New Virtual Host with Atomic Staging & Syntax Testing
+// 6. Create New Virtual Host with Atomic Staging & Syntax Testing
 router.post('/', async (req, res) => {
   try {
-    const { domain, type, target, clientMaxBodySize, supportWebSocket, supportSse, redirectCode, webRoot, autoSsl, email } = req.body || {};
+    const { domain, type, target, upstreamPort, clientMaxBodySize, supportWebSocket, supportSse, redirectCode, webRoot, autoSsl, email } = req.body || {};
 
     if (!domain) {
       return res.status(400).json({ error: 'Domain name is required.' });
@@ -53,10 +90,47 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ error: `Invalid domain name format: "${domain}". Must adhere to RFC standards.` });
     }
 
+    let finalTarget = target;
+    let portWarning = null;
+
+    if ((type || 'proxy') === 'proxy') {
+      let portToUse = null;
+
+      if (upstreamPort !== undefined && upstreamPort !== null && String(upstreamPort).trim() !== '') {
+        portToUse = parseInt(String(upstreamPort).trim(), 10);
+      } else if (finalTarget && String(finalTarget).trim() !== '') {
+        if (/^\d+$/.test(String(finalTarget).trim())) {
+          portToUse = parseInt(String(finalTarget).trim(), 10);
+        } else {
+          portToUse = portInspector.extractPortFromTarget(finalTarget);
+        }
+      }
+
+      // If port is missing or empty, auto-assign next available port
+      if (!portToUse) {
+        portToUse = await portInspector.findNextAvailablePort();
+        finalTarget = `http://127.0.0.1:${portToUse}`;
+      } else {
+        // Normalize finalTarget if just a port or not formatted
+        if (!finalTarget || /^\d+$/.test(String(finalTarget).trim()) || String(finalTarget).trim() === '') {
+          finalTarget = `http://127.0.0.1:${portToUse}`;
+        }
+
+        // Non-blocking check if requested port is currently in use or allocated
+        const isFree = await portInspector.checkPortAvailable(portToUse);
+        const allocated = portInspector.getAllocatedVHostPorts();
+        if (!isFree || allocated.has(portToUse)) {
+          const suggested = await portInspector.findNextAvailablePort();
+          portWarning = `Port ${portToUse} is already in use or allocated. Suggested alternative: ${suggested}`;
+          console.warn(`[vHostRouter] Warning: ${portWarning}`);
+        }
+      }
+    }
+
     // Atomic Creation & Testing
     const result = await vhostEngine.createOrUpdateVHost(domain, {
       type: type || 'proxy',
-      target: target || 'http://127.0.0.1:8888',
+      target: finalTarget || 'http://127.0.0.1:8888',
       clientMaxBodySize,
       supportWebSocket,
       supportSse,
@@ -74,7 +148,7 @@ router.post('/', async (req, res) => {
       payload: {
         domain,
         type: type || 'proxy',
-        target: target || webRoot || '',
+        target: finalTarget || webRoot || '',
         success: true
       }
     });
@@ -103,6 +177,7 @@ router.post('/', async (req, res) => {
 
     res.status(201).json({
       ...result,
+      portWarning,
       ssl: sslResult
     });
   } catch (err) {

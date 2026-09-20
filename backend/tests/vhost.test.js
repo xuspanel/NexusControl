@@ -1,8 +1,10 @@
 const request = require('supertest');
 const fs = require('node:fs');
 const path = require('node:path');
+const net = require('node:net');
 const { app } = require('../server');
 const vhostEngine = require('../vhostEngine');
+const portInspector = require('../portInspector');
 const auditLogger = require('../auditLogger');
 
 describe('Enterprise Nginx vHost & Domain Manager Integration', () => {
@@ -251,6 +253,102 @@ describe('Enterprise Nginx vHost & Domain Manager Integration', () => {
       const verification = auditLogger.verifyAuditChain();
       expect(verification.valid).toBe(true);
       expect(verification.count).toBeGreaterThan(0);
+    });
+  });
+
+  describe('Smart Port Inspector & Auto-Allocator', () => {
+    let dummyServer;
+    const busyPort = 8997;
+
+    beforeAll((done) => {
+      dummyServer = net.createServer();
+      dummyServer.listen(busyPort, '127.0.0.1', () => done());
+    });
+
+    afterAll((done) => {
+      if (dummyServer) {
+        dummyServer.close(() => done());
+      } else {
+        done();
+      }
+    });
+
+    test('Listening on an active socket correctly reports available: false', async () => {
+      const isAvailable = await portInspector.checkPortAvailable(busyPort);
+      expect(isAvailable).toBe(false);
+    });
+
+    test('Unbound port in range 8080-9999 reports available: true', async () => {
+      const nextFree = await portInspector.findNextAvailablePort(8080, 9999);
+      expect(typeof nextFree).toBe('number');
+      expect(nextFree).toBeGreaterThanOrEqual(8080);
+      expect(nextFree).toBeLessThanOrEqual(9999);
+
+      const isAvailable = await portInspector.checkPortAvailable(nextFree);
+      expect(isAvailable).toBe(true);
+    });
+
+    test('GET /api/vhosts/inspect-port validates port and returns availability and suggestion', async () => {
+      // 1. Busy port check
+      const resBusy = await request(app)
+        .get(`/api/vhosts/inspect-port?port=${busyPort}`)
+        .set(authHeader);
+
+      expect(resBusy.status).toBe(200);
+      expect(resBusy.body).toHaveProperty('port', busyPort);
+      expect(resBusy.body.available).toBe(false);
+      expect(resBusy.body).toHaveProperty('suggestedPort');
+      expect(typeof resBusy.body.suggestedPort).toBe('number');
+      expect(resBusy.body.suggestedPort).not.toBe(busyPort);
+
+      // 2. Invalid port check (out of range)
+      const resInvalid = await request(app)
+        .get('/api/vhosts/inspect-port?port=70000')
+        .set(authHeader);
+
+      expect(resInvalid.status).toBe(400);
+      expect(resInvalid.body.error).toContain('Port must be an integer between 1 and 65535');
+    });
+
+    test('GET /api/vhosts/next-port returns recommended available port', async () => {
+      const res = await request(app)
+        .get('/api/vhosts/next-port')
+        .set(authHeader);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveProperty('suggestedPort');
+      expect(typeof res.body.suggestedPort).toBe('number');
+      expect(res.body.suggestedPort).toBeGreaterThanOrEqual(8080);
+    });
+
+    test('POST /api/vhosts auto-assigns next available port when target is empty for Reverse Proxy', async () => {
+      const spy = jest.spyOn(vhostEngine, 'createOrUpdateVHost').mockResolvedValueOnce({
+        success: true,
+        domain: 'auto-port.example.com',
+        type: 'proxy',
+        target: 'http://127.0.0.1:8080'
+      });
+
+      const res = await request(app)
+        .post('/api/vhosts')
+        .set(authHeader)
+        .send({
+          domain: 'auto-port.example.com',
+          type: 'proxy'
+          // target and upstreamPort omitted
+        });
+
+      expect(res.status).toBe(201);
+      expect(spy).toHaveBeenCalled();
+      const passedConfig = spy.mock.calls[0][1];
+      expect(passedConfig.target).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
+
+      // Verify generated Nginx template syntax
+      const template = vhostEngine.renderVHostTemplate('auto-port.example.com', passedConfig);
+      expect(template).toContain(`proxy_pass ${passedConfig.target};`);
+      expect(template).toContain('server_name auto-port.example.com;');
+
+      spy.mockRestore();
     });
   });
 });

@@ -177,6 +177,7 @@ The Enterprise Nginx vHost & Domain Manager provides unified domain orchestratio
   - **Reverse Proxy:** Directs traffic to local services and containers. Includes full duplex WebSockets, Server-Sent Events non-buffering (`proxy_buffering off; proxy_cache off; chunked_transfer_encoding off;`), real IP headers (`X-Real-IP`, `X-Forwarded-For`, `X-Forwarded-Proto`), and customizable body limits.
   - **Static Sites:** Fast static asset hosting from `/var/www/<domain>/html`. Automatically creates directories with proper permissions and fallback default index files.
   - **HTTP Redirects:** 301 Permanent or 302 Temporary redirects.
+- **Smart Port Inspector & Auto-Allocator:** Scans local TCP sockets using native `node:net` and cross-references existing allocated ports across all managed vHosts (`/etc/nginx/conf.d/nexus_vhost_*.conf`). Automatically assigns the next available port in the 8080–9999 range if omitted, and provides a real-time debounced port availability checker with one-click conflict substitution in the web UI.
 - **Zero-Config Docker Integration:** The creation wizard features a "Pick from Running Docker Containers" dropdown that scans local containers (e.g. `nexus-demo-service`) and automatically maps upstream ports.
 - **Automated Let's Encrypt SSL Engine:**
   - **Pre-Flight DNS Resolution:** Verifies domain A-records against the host's public IP (`132.145.70.205`) using Node's native DNS resolver before invoking Certbot.
@@ -212,6 +213,8 @@ The Enterprise Nginx vHost & Domain Manager provides unified domain orchestratio
 | `/api/vhosts/:domain/toggle` | `POST` | Bearer Token | Enables or disables a virtual host by toggling between `.conf` and `.conf.disabled` (`VHOST_TOGGLE`). |
 | `/api/vhosts/:domain` | `DELETE` | Bearer Token | Safely deletes virtual host with signature verification and reloads Nginx (`VHOST_DELETE`). |
 | `/api/vhosts/dns-check/:domain` | `GET` | Bearer Token | Runs pre-flight DNS A-record lookup against VPS public IP (`132.145.70.205`). |
+| `/api/vhosts/inspect-port` | `GET` | Bearer Token | Inspects TCP port availability via `node:net` and vHost allocation, returning alternative. |
+| `/api/vhosts/next-port` | `GET` | Bearer Token | Scans and returns the next verified free TCP port in the 8080–9999 range. |
 | `/api/vhosts/:domain/ssl` | `POST` | Bearer Token | Executes Certbot to provision and activate Let's Encrypt SSL certificate (`SSL_ISSUE`). |
 
 ---
@@ -277,6 +280,7 @@ Because the NexusControl backend runs with `root` privileges to supervise system
 │   ├── dockerRouter.js           # REST API router mounted at /api/docker/*
 │   ├── vhostEngine.js            # Enterprise Nginx vHost & Let's Encrypt Certbot engine
 │   ├── vhostRouter.js            # REST API router mounted at /api/vhosts/*
+│   ├── portInspector.js          # Native TCP socket inspection & auto-allocation engine
 │   ├── terminalSessions.js       # Persistent tmux-style PTY session manager & ring buffer
 │   ├── terminalWs.js             # Hardened WebSocket server with upgrade gatekeeper
 │   ├── terminalPresets.js        # SQLite-backed command presets library

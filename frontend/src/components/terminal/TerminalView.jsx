@@ -82,18 +82,6 @@ export default function TerminalView({ token, onShowToast, initialCommand, onCle
     }
   }, [resolvedTheme]);
 
-  // Initial command execution bridge (e.g. docker exec -it <container> /bin/sh)
-  useEffect(() => {
-    if (initialCommand && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      const timer = setTimeout(() => {
-        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-          wsRef.current.send(JSON.stringify({ type: 'input', data: `${initialCommand}\r` }));
-          onClearInitialCommand?.();
-        }
-      }, 300);
-      return () => clearTimeout(timer);
-    }
-  }, [initialCommand, connectionStatus]);
 
   // Tabs state
   const [tabs, setTabs] = useState(() => {
@@ -134,6 +122,19 @@ export default function TerminalView({ token, onShowToast, initialCommand, onCle
       localStorage.setItem(STORAGE_ACTIVE_TAB_KEY, activeTabId);
     } catch (e) {}
   }, [activeTabId]);
+
+  // Initial command execution bridge (e.g. docker exec -it <container> /bin/sh)
+  useEffect(() => {
+    if (initialCommand && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      const timer = setTimeout(() => {
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({ type: 'input', data: `${initialCommand}\r` }));
+          onClearInitialCommand?.();
+        }
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+  }, [initialCommand, connectionStatus, onClearInitialCommand]);
 
   // Connect WebSocket & bind to terminal
   const connectWebSocket = useCallback((term, sessionId) => {

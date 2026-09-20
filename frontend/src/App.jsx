@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Activity, FolderTree, Terminal, ShieldCheck, Boxes } from 'lucide-react';
+import { Activity, FolderTree, Terminal, ShieldCheck, Boxes, Globe } from 'lucide-react';
 import { useTelemetry } from './hooks/useTelemetry';
 import AuthGate from './components/AuthGate';
 import HeaderProfile from './components/HeaderProfile';
@@ -14,6 +14,7 @@ import FileManager from './components/files/FileManager';
 import TerminalView from './components/terminal/TerminalView';
 import AuditLogView from './components/audit/AuditLogView';
 import DockerView from './components/docker/DockerView';
+import VHostView from './components/vhost/VHostView';
 
 export default function App() {
   const {
@@ -127,6 +128,21 @@ export default function App() {
             </button>
 
             <button
+              onClick={() => setActiveTab('domains')}
+              className={`flex items-center gap-2 px-4 py-3 text-xs font-medium border-b-2 transition-colors ${
+                activeTab === 'domains'
+                  ? 'border-emerald-500 text-emerald-600 dark:text-emerald-400 bg-emerald-500/5'
+                  : 'border-transparent text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800/40'
+              }`}
+            >
+              <Globe className="w-4 h-4" />
+              <span>Domains & Proxy</span>
+              <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-700">
+                nginx
+              </span>
+            </button>
+
+            <button
               onClick={() => setActiveTab('terminal')}
               className={`flex items-center gap-2 px-4 py-3 text-xs font-medium border-b-2 transition-colors ${
                 activeTab === 'terminal'
@@ -204,6 +220,13 @@ export default function App() {
             telemetry={telemetry}
             onShowToast={showToast}
             onExecContainer={handleExecContainer}
+          />
+        </main>
+      ) : activeTab === 'domains' ? (
+        <main className="flex-1 max-w-7xl w-full mx-auto px-4 lg:px-8 py-4">
+          <VHostView
+            token={token}
+            onShowToast={showToast}
           />
         </main>
       ) : activeTab === 'terminal' ? (

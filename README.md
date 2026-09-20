@@ -169,6 +169,22 @@ Comprehensive regression and security test suite testing backend systems with ze
   - `tests/terminal.test.js`: Pseudo-terminal (PTY) session spawning, ring buffer history replay, geometry resizing, and clean process teardown.
 
 
+### H. Enterprise Nginx vHost & Domain Manager (Flagship)
+The Enterprise Nginx vHost & Domain Manager provides unified domain orchestration, reverse-proxy routing, static web app hosting, and automated Let's Encrypt SSL certificate issuance directly from the NexusControl dashboard:
+- **Atomic Configuration Pipeline & Rollback:** Zero-downtime virtual host lifecycle. Staging files are rendered, verified against `nginx -t` via child process, and immediately rolled back if syntax validation fails, ensuring the web server never crashes.
+- **Signature Header Isolation:** All managed configurations in `/etc/nginx/conf.d/nexus_vhost_<domain>.conf` include `# Managed by NexusControl - Do Not Edit Manually Outside UI`, ensuring host configs (e.g., `nxpanel.xus.me.conf`, `xus.me.conf`) remain untouched.
+- **Multi-Type Virtual Host Engine:**
+  - **Reverse Proxy:** Directs traffic to local services and containers. Includes full duplex WebSockets, Server-Sent Events non-buffering (`proxy_buffering off; proxy_cache off; chunked_transfer_encoding off;`), real IP headers (`X-Real-IP`, `X-Forwarded-For`, `X-Forwarded-Proto`), and customizable body limits.
+  - **Static Sites:** Fast static asset hosting from `/var/www/<domain>/html`. Automatically creates directories with proper permissions and fallback default index files.
+  - **HTTP Redirects:** 301 Permanent or 302 Temporary redirects.
+- **Zero-Config Docker Integration:** The creation wizard features a "Pick from Running Docker Containers" dropdown that scans local containers (e.g. `nexus-demo-service`) and automatically maps upstream ports.
+- **Automated Let's Encrypt SSL Engine:**
+  - **Pre-Flight DNS Resolution:** Verifies domain A-records against the host's public IP (`132.145.70.205`) using Node's native DNS resolver before invoking Certbot.
+  - **Automated Certbot Issuance:** Executes `certbot --nginx` with automatic certificate renewals and HTTP-to-HTTPS redirects.
+  - **X509 Certificate Tracking:** Reads certificates to display real-time expiration dates and countdowns.
+- **State Toggling:** Instantly enable or disable virtual hosts by renaming between `.conf` and `.conf.disabled` with automated syntax testing and Nginx reloads.
+- **Tamper-Evident Audit Integration:** All vHost mutations append `VHOST_CREATE`, `VHOST_UPDATE`, `VHOST_DELETE`, `VHOST_TOGGLE`, and `SSL_ISSUE` events to the SHA-256 cryptographic audit ledger.
+
 ---
 
 ## 3. Terminal REST & WebSocket Endpoints
@@ -189,6 +205,14 @@ Comprehensive regression and security test suite testing backend systems with ze
 | `/api/docker/containers/:id` | `GET` | Bearer Token | Inspects container configuration, environment variables, mounts, and network aliases. |
 | `/api/docker/containers/:id/action` | `POST` | Bearer Token | Dispatches container lifecycle action (`start`, `stop`, `restart`, `kill`) and appends `DOCKER_*` event to audit ledger. |
 | `/api/docker/containers/:id` | `DELETE` | Bearer Token | Removes container (optional `?force=true&v=true`) and appends `DOCKER_DELETE` event to audit ledger. |
+| `/api/vhosts` | `GET` | Bearer Token | Lists all managed virtual hosts with service type, target, and SSL expiration metadata. |
+| `/api/vhosts` | `POST` | Bearer Token | Validates, stages, tests with `nginx -t`, and creates a new virtual host (`VHOST_CREATE`). |
+| `/api/vhosts/:domain` | `GET` | Bearer Token | Retrieves raw Nginx configuration and parsed metadata for a domain. |
+| `/api/vhosts/:domain` | `PUT` | Bearer Token | Updates virtual host configuration with atomic rollback on syntax error (`VHOST_UPDATE`). |
+| `/api/vhosts/:domain/toggle` | `POST` | Bearer Token | Enables or disables a virtual host by toggling between `.conf` and `.conf.disabled` (`VHOST_TOGGLE`). |
+| `/api/vhosts/:domain` | `DELETE` | Bearer Token | Safely deletes virtual host with signature verification and reloads Nginx (`VHOST_DELETE`). |
+| `/api/vhosts/dns-check/:domain` | `GET` | Bearer Token | Runs pre-flight DNS A-record lookup against VPS public IP (`132.145.70.205`). |
+| `/api/vhosts/:domain/ssl` | `POST` | Bearer Token | Executes Certbot to provision and activate Let's Encrypt SSL certificate (`SSL_ISSUE`). |
 
 ---
 
@@ -251,6 +275,8 @@ Because the NexusControl backend runs with `root` privileges to supervise system
 │   ├── auditRouter.js            # REST API router mounted at /api/audit/*
 │   ├── dockerEngine.js           # Native zero-dependency Docker socket client & telemetry sampler
 │   ├── dockerRouter.js           # REST API router mounted at /api/docker/*
+│   ├── vhostEngine.js            # Enterprise Nginx vHost & Let's Encrypt Certbot engine
+│   ├── vhostRouter.js            # REST API router mounted at /api/vhosts/*
 │   ├── terminalSessions.js       # Persistent tmux-style PTY session manager & ring buffer
 │   ├── terminalWs.js             # Hardened WebSocket server with upgrade gatekeeper
 │   ├── terminalPresets.js        # SQLite-backed command presets library
@@ -274,7 +300,8 @@ Because the NexusControl backend runs with `root` privileges to supervise system
 │   │   ├── files.test.js         # Filesystem operations & guardrail tests
 │   │   ├── osAdapter.test.js     # OS detection & abstraction engine tests
 │   │   ├── telemetry.test.js     # Hardware profile & metrics tests
-│   │   └── terminal.test.js      # PTY session management & ring buffer tests
+│   │   ├── terminal.test.js      # PTY session management & ring buffer tests
+│   │   └── vhost.test.js         # Virtual host atomic staging, validation & SSL tests
 │   └── node_modules/             # Installed backend dependencies
 ├── frontend/                     # React 18 / Vite Single Page Application
 │   ├── package.json              # Frontend dependencies (xterm, monaco, tailwind, etc.)
@@ -302,6 +329,13 @@ Because the NexusControl backend runs with `root` privileges to supervise system
 │           ├── ToastNotification.jsx # Floating operational feedback toast
 │           ├── audit/                # Enterprise Tamper-Evident Audit Log components
 │           │   └── AuditLogView.jsx  # Audit ledger table, verification bar, & block inspector
+│           ├── docker/               # Enterprise Docker Engine components
+│           │   ├── DockerView.jsx        # Container grid/list, action dispatcher, stats
+│           │   └── ContainerInspectModal.jsx # Monaco JSON & deep resource inspector
+│           ├── vhost/                # Enterprise Nginx vHost & Domain Manager components
+│           │   ├── VHostView.jsx         # Managed domains table, metrics banner, toggles
+│           │   ├── VHostCreateModal.jsx  # 3-step creation wizard with Docker port auto-map
+│           │   └── VHostConfigModal.jsx  # Read-only Monaco Nginx configuration viewer
 │           ├── terminal/             # Enterprise Terminal module components
 │           │   ├── TerminalView.jsx      # Xterm.js v6 container with WebGL/canvas fallback
 │           │   ├── VirtualTouchBar.jsx   # Mobile touch bar injecting ANSI escape sequences

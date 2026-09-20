@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
-import { Activity, FolderTree, Terminal, ShieldCheck, Boxes, Globe } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useTelemetry } from './hooks/useTelemetry';
+import { useTheme } from './context/ThemeProvider';
+import { NAV_SHORTCUTS } from './config/navigation';
 import AuthGate from './components/AuthGate';
 import HeaderProfile from './components/HeaderProfile';
 import TelemetryGauges from './components/TelemetryGauges';
@@ -15,6 +16,12 @@ import TerminalView from './components/terminal/TerminalView';
 import AuditLogView from './components/audit/AuditLogView';
 import DockerView from './components/docker/DockerView';
 import VHostView from './components/vhost/VHostView';
+
+// Adaptive Tri-Mode Navigation Components
+import SidebarNav from './components/nav/SidebarNav';
+import TopHeader from './components/nav/TopHeader';
+import MobileNav from './components/nav/MobileNav';
+import CommandPalette from './components/nav/CommandPalette';
 
 export default function App() {
   const {
@@ -31,20 +38,98 @@ export default function App() {
     refreshProfile
   } = useTelemetry();
 
-  const [activeTab, setActiveTab] = useState('telemetry'); // 'telemetry' | 'files' | 'docker' | 'terminal' | 'audit'
+  const { toggleTheme } = useTheme();
+
+  // Navigation state: 'overview' | 'files' | 'terminal' | 'docker' | 'vhosts' | 'audit'
+  const [activeTab, setActiveTab] = useState('overview');
   const [toast, setToast] = useState(null);
   const [pendingTerminalCommand, setPendingTerminalCommand] = useState(null);
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
 
-  const showToast = React.useCallback((message, type = 'info') => {
+  // Persistent sidebar collapse state
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem('nexus_sidebar_collapsed') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const toggleSidebar = useCallback(() => {
+    setSidebarCollapsed(prev => {
+      const next = !prev;
+      try {
+        localStorage.setItem('nexus_sidebar_collapsed', String(next));
+      } catch {}
+      return next;
+    });
+  }, []);
+
+  const showToast = useCallback((message, type = 'info') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 4000);
   }, []);
 
-  const handleExecContainer = (containerName) => {
+  const handleExecContainer = useCallback((containerName) => {
     setPendingTerminalCommand(`docker exec -it ${containerName} /bin/sh`);
     setActiveTab('terminal');
     showToast(`Opening terminal shell into container: ${containerName}`, 'info');
-  };
+  }, [showToast]);
+
+  const handleExecuteAction = useCallback((actionId) => {
+    switch (actionId) {
+      case 'toggle_theme':
+        toggleTheme();
+        showToast('Theme toggled', 'info');
+        break;
+      case 'open_terminal':
+        setActiveTab('terminal');
+        break;
+      case 'upload_file':
+        setActiveTab('files');
+        break;
+      case 'create_vhost':
+        setActiveTab('vhosts');
+        break;
+      case 'verify_audit':
+        setActiveTab('audit');
+        break;
+      case 'restart_docker':
+        setActiveTab('docker');
+        break;
+      default:
+        break;
+    }
+  }, [toggleTheme, showToast]);
+
+  // Global Hotkeys: Alt+1..6, Ctrl+1..6, Cmd+K / Ctrl+K
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      // 1. Spotlight Command Palette Shortcut
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setIsCommandPaletteOpen(prev => !prev);
+        return;
+      }
+
+      // Disallow tab jumping when typing in input/textarea/contentEditable
+      const tag = e.target?.tagName;
+      const isInput = tag === 'INPUT' || tag === 'TEXTAREA' || e.target?.isContentEditable;
+      if (isInput) return;
+
+      // 2. Direct screen jump: Alt+1..6 or Ctrl+1..6
+      if (e.altKey || e.ctrlKey) {
+        const key = e.key;
+        if (NAV_SHORTCUTS[key]) {
+          e.preventDefault();
+          setActiveTab(NAV_SHORTCUTS[key]);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   if (isAuthChecking) {
     return (
@@ -68,188 +153,137 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-zinc-50 dark:bg-[#09090b] text-zinc-900 dark:text-zinc-100 flex flex-col selection:bg-emerald-500/20 selection:text-emerald-500 dark:selection:text-emerald-400 transition-colors">
-      {/* 1. Header & VPS System Profile */}
-      <HeaderProfile
+    <div className="h-[100dvh] flex flex-col bg-zinc-50 dark:bg-[#09090b] text-zinc-900 dark:text-zinc-100 overflow-hidden selection:bg-emerald-500/20 selection:text-emerald-500 dark:selection:text-emerald-400 transition-colors">
+      {/* 1. Desktop & Tablet Adaptive Sidebar (Hidden on mobile) */}
+      <SidebarNav
+        activeTab={activeTab}
+        onSelectTab={setActiveTab}
+        collapsed={sidebarCollapsed}
+        onToggleCollapse={toggleSidebar}
         profile={profile}
         telemetry={telemetry}
         connected={connected}
+        onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
         onLogout={logout}
-        onRefresh={() => {
-          refreshProfile();
-          showToast('Host profile refreshed', 'info');
-        }}
       />
 
-      {/* 2. Top-Level Tab Switcher */}
-      <div className="bg-white/90 dark:bg-[#121215]/90 border-b border-zinc-200 dark:border-zinc-800/80 sticky top-0 z-30 backdrop-blur-md transition-colors">
-        <div className="max-w-7xl mx-auto px-4 lg:px-8 flex items-center justify-between">
-          <div className="flex items-center space-x-1">
-            <button
-              onClick={() => setActiveTab('telemetry')}
-              className={`flex items-center gap-2 px-4 py-3 text-xs font-medium border-b-2 transition-colors ${
-                activeTab === 'telemetry'
-                  ? 'border-emerald-500 text-emerald-600 dark:text-emerald-400 bg-emerald-500/5'
-                  : 'border-transparent text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800/40'
-              }`}
-            >
-              <Activity className="w-4 h-4" />
-              <span>System Telemetry</span>
-            </button>
+      {/* 2. Fixed Top Header (All screens, responsive left offset) */}
+      <TopHeader
+        activeTab={activeTab}
+        sidebarCollapsed={sidebarCollapsed}
+        telemetry={telemetry}
+        connected={connected}
+        onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
+      />
 
-            <button
-              onClick={() => setActiveTab('files')}
-              className={`flex items-center gap-2 px-4 py-3 text-xs font-medium border-b-2 transition-colors ${
-                activeTab === 'files'
-                  ? 'border-emerald-500 text-emerald-600 dark:text-emerald-400 bg-emerald-500/5'
-                  : 'border-transparent text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800/40'
-              }`}
-            >
-              <FolderTree className="w-4 h-4" />
-              <span>Files Manager</span>
-              <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-700">
-                root
-              </span>
-            </button>
+      {/* 3. Main Responsive Scrollable Viewport */}
+      <div
+        className={`flex-1 overflow-y-auto pt-16 pb-20 md:pb-6 transition-all duration-300 ${
+          sidebarCollapsed ? 'pl-0 md:pl-16' : 'pl-0 md:pl-16 xl:pl-60'
+        }`}
+      >
+        {activeTab === 'overview' || activeTab === 'telemetry' ? (
+          <main className="max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-4 space-y-6">
+            {/* VPS System Profile & Hardware Hero Card */}
+            <HeaderProfile
+              profile={profile}
+              telemetry={telemetry}
+              connected={connected}
+              onLogout={logout}
+              onRefresh={() => {
+                refreshProfile();
+                showToast('Host profile refreshed', 'info');
+              }}
+            />
 
-            <button
-              onClick={() => setActiveTab('docker')}
-              className={`flex items-center gap-2 px-4 py-3 text-xs font-medium border-b-2 transition-colors ${
-                activeTab === 'docker'
-                  ? 'border-emerald-500 text-emerald-600 dark:text-emerald-400 bg-emerald-500/5'
-                  : 'border-transparent text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800/40'
-              }`}
-            >
-              <Boxes className="w-4 h-4" />
-              <span>Docker</span>
-              <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-700">
-                {telemetry?.containers?.summary?.running ?? 0}
-              </span>
-            </button>
+            {/* Live System Telemetry Gauges */}
+            <section aria-label="System Telemetry Gauges">
+              <TelemetryGauges telemetry={telemetry} />
+            </section>
 
-            <button
-              onClick={() => setActiveTab('domains')}
-              className={`flex items-center gap-2 px-4 py-3 text-xs font-medium border-b-2 transition-colors ${
-                activeTab === 'domains'
-                  ? 'border-emerald-500 text-emerald-600 dark:text-emerald-400 bg-emerald-500/5'
-                  : 'border-transparent text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800/40'
-              }`}
-            >
-              <Globe className="w-4 h-4" />
-              <span>Domains & Proxy</span>
-              <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-700">
-                nginx
-              </span>
-            </button>
+            {/* Historical Time-Series Charts */}
+            <section aria-label="Historical Time-Series Charts">
+              <HistoricalCharts token={token} liveTelemetry={telemetry} />
+            </section>
 
-            <button
-              onClick={() => setActiveTab('terminal')}
-              className={`flex items-center gap-2 px-4 py-3 text-xs font-medium border-b-2 transition-colors ${
-                activeTab === 'terminal'
-                  ? 'border-emerald-500 text-emerald-600 dark:text-emerald-400 bg-emerald-500/5'
-                  : 'border-transparent text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800/40'
-              }`}
-            >
-              <Terminal className="w-4 h-4" />
-              <span>Terminal</span>
-              <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-700">
-                bash
-              </span>
-            </button>
+            {/* Operations Grid: Process Manager & Systemd Supervisor */}
+            <section aria-label="Process & Service Operations" className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <ProcessManager token={token} onShowToast={showToast} />
+              <ServiceSupervisor token={token} onShowToast={showToast} />
+            </section>
 
-            <button
-              onClick={() => setActiveTab('audit')}
-              className={`flex items-center gap-2 px-4 py-3 text-xs font-medium border-b-2 transition-colors ${
-                activeTab === 'audit'
-                  ? 'border-emerald-500 text-emerald-600 dark:text-emerald-400 bg-emerald-500/5'
-                  : 'border-transparent text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800/40'
-              }`}
-            >
-              <ShieldCheck className="w-4 h-4" />
-              <span>Audit Log</span>
-              <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-700">
-                SHA-256
-              </span>
-            </button>
-          </div>
+            {/* Network & Security Overview */}
+            <section aria-label="Network & Security Overview">
+              <SecurityOverview token={token} />
+            </section>
 
-          <div className="hidden sm:flex items-center gap-2 text-xs font-mono text-zinc-500 dark:text-zinc-400">
-            <span className={`w-2 h-2 rounded-full ${connected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
-            <span>{connected ? 'Telemetry Stream Active' : 'Connecting Stream...'}</span>
-          </div>
-        </div>
+            {/* Centralized System Journal Streamer */}
+            <section aria-label="System Journal Streamer">
+              <JournalStreamer token={token} onShowToast={showToast} />
+            </section>
+          </main>
+        ) : activeTab === 'files' ? (
+          <main className="max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-4">
+            <FileManager token={token} onShowToast={showToast} />
+          </main>
+        ) : activeTab === 'docker' ? (
+          <main className="max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-4">
+            <DockerView
+              token={token}
+              telemetry={telemetry}
+              onShowToast={showToast}
+              onExecContainer={handleExecContainer}
+            />
+          </main>
+        ) : activeTab === 'vhosts' || activeTab === 'domains' ? (
+          <main className="max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-4">
+            <VHostView
+              token={token}
+              onShowToast={showToast}
+            />
+          </main>
+        ) : activeTab === 'terminal' ? (
+          <main className="max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-4 flex flex-col h-[calc(100dvh-5rem)]">
+            <TerminalView
+              token={token}
+              onShowToast={showToast}
+              initialCommand={pendingTerminalCommand}
+              onClearInitialCommand={() => setPendingTerminalCommand(null)}
+            />
+          </main>
+        ) : (
+          <main className="max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-4">
+            <AuditLogView token={token} onShowToast={showToast} />
+          </main>
+        )}
+
+        {/* Footer */}
+        <footer className="border-t border-zinc-200 dark:border-zinc-800/60 py-4 px-4 text-center text-xs font-mono text-zinc-500 dark:text-zinc-600 transition-colors mt-8">
+          NexusControl • Ubuntu Linux VPS Operations Engine • Daemon Resident: &lt;45MB • SSE 1.5s Native Ingestion
+        </footer>
       </div>
 
-      {/* 3. Main Body */}
-      {activeTab === 'telemetry' ? (
-        <main className="flex-1 max-w-7xl w-full mx-auto px-4 lg:px-8 py-6 space-y-6">
-          {/* Live System Telemetry Gauges */}
-          <section aria-label="System Telemetry Gauges">
-            <TelemetryGauges telemetry={telemetry} />
-          </section>
+      {/* 4. Mobile Ergonomic Bottom Dock & Slide-Up More Sheet (Hidden on tablet/desktop) */}
+      <MobileNav
+        activeTab={activeTab}
+        onSelectTab={setActiveTab}
+        telemetry={telemetry}
+        profile={profile}
+        connected={connected}
+        onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
+        onLogout={logout}
+      />
 
-          {/* Historical Time-Series Charts */}
-          <section aria-label="Historical Time-Series Charts">
-            <HistoricalCharts token={token} liveTelemetry={telemetry} />
-          </section>
+      {/* 5. Universal Command Palette (Spotlight Modal) */}
+      <CommandPalette
+        isOpen={isCommandPaletteOpen}
+        onClose={() => setIsCommandPaletteOpen(false)}
+        activeTab={activeTab}
+        onSelectTab={setActiveTab}
+        onExecuteAction={handleExecuteAction}
+      />
 
-          {/* Operations Grid: Process Manager & Systemd Supervisor */}
-          <section aria-label="Process & Service Operations" className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <ProcessManager token={token} onShowToast={showToast} />
-            <ServiceSupervisor token={token} onShowToast={showToast} />
-          </section>
-
-          {/* Network & Security Overview */}
-          <section aria-label="Network & Security Overview">
-            <SecurityOverview token={token} />
-          </section>
-
-          {/* Centralized System Journal Streamer */}
-          <section aria-label="System Journal Streamer">
-            <JournalStreamer token={token} onShowToast={showToast} />
-          </section>
-        </main>
-      ) : activeTab === 'files' ? (
-        <main className="flex-1 max-w-7xl w-full mx-auto px-4 lg:px-8 py-4">
-          <FileManager token={token} onShowToast={showToast} />
-        </main>
-      ) : activeTab === 'docker' ? (
-        <main className="flex-1 max-w-7xl w-full mx-auto px-4 lg:px-8 py-4">
-          <DockerView
-            token={token}
-            telemetry={telemetry}
-            onShowToast={showToast}
-            onExecContainer={handleExecContainer}
-          />
-        </main>
-      ) : activeTab === 'domains' ? (
-        <main className="flex-1 max-w-7xl w-full mx-auto px-4 lg:px-8 py-4">
-          <VHostView
-            token={token}
-            onShowToast={showToast}
-          />
-        </main>
-      ) : activeTab === 'terminal' ? (
-        <main className="flex-1 max-w-7xl w-full mx-auto px-4 lg:px-8 py-4 flex flex-col">
-          <TerminalView
-            token={token}
-            onShowToast={showToast}
-            initialCommand={pendingTerminalCommand}
-            onClearInitialCommand={() => setPendingTerminalCommand(null)}
-          />
-        </main>
-      ) : (
-        <main className="flex-1 max-w-7xl w-full mx-auto px-4 lg:px-8 py-4">
-          <AuditLogView token={token} onShowToast={showToast} />
-        </main>
-      )}
-
-      {/* Footer */}
-      <footer className="border-t border-zinc-200 dark:border-zinc-800/60 py-4 px-4 text-center text-xs font-mono text-zinc-500 dark:text-zinc-600 transition-colors">
-        NexusControl • Ubuntu Linux VPS Operations Engine • Daemon Resident: &lt;45MB • SSE 1.5s Native Ingestion
-      </footer>
-
-      {/* Floating Feedback Toast */}
+      {/* 6. Floating Feedback Toast */}
       <ToastNotification toast={toast} onClose={() => setToast(null)} />
     </div>
   );

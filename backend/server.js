@@ -25,6 +25,8 @@ const auditRouter = require('./auditRouter');
 const dockerRouter = require('./dockerRouter');
 const dockerEngine = require('./dockerEngine');
 const vhostRouter = require('./vhostRouter');
+const backupRouter = require('./backupRouter');
+const scheduler = require('./scheduler');
 
 // Ensure system storage directories exist on boot
 trash.initTrash().then(() => console.log('[BOOT] Trash directory initialized at /opt/NexusControl/.trash')).catch(err => console.error('[BOOT ERROR] Trash init:', err));
@@ -395,8 +397,12 @@ app.use('/api/docker', auth.authMiddleware, dockerRouter);
 // Protected Enterprise Nginx vHost & Domain Manager Endpoints
 app.use('/api/vhosts', auth.authMiddleware, vhostRouter);
 
+// Protected Automated Backup & Snapshot Engine Endpoints
+app.use('/api/backups', auth.authMiddleware, backupRouter);
+
 if (process.env.NODE_ENV !== 'test') {
   dockerEngine.startBackgroundSampling(3500);
+  scheduler.initScheduler();
 }
 
 // Health check endpoint for internal monitoring

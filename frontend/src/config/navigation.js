@@ -4,7 +4,8 @@ import {
   Terminal,
   Boxes,
   Globe,
-  ShieldCheck
+  ShieldCheck,
+  Archive
 } from 'lucide-react';
 
 /**
@@ -63,6 +64,15 @@ export const NAV_ITEMS = [
     icon: 'ShieldCheck',
     iconComponent: ShieldCheck,
     shortcut: '6',
+    primaryMobile: false
+  },
+  {
+    id: 'backups',
+    label: 'Backups',
+    description: 'Zstandard system snapshots, scheduled cron jobs & atomic restore',
+    icon: 'Archive',
+    iconComponent: Archive,
+    shortcut: '7',
     primaryMobile: false
   }
 ];

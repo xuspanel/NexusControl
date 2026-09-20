@@ -110,7 +110,8 @@ if [ "${OS_FAMILY}" = "debian" ]; then
     git \
     tar \
     gzip \
-    procps
+    procps \
+    zstd
 elif [ "${OS_FAMILY}" = "rhel" ]; then
   PKG_MGR="dnf"
   if ! command -v dnf >/dev/null 2>&1; then
@@ -126,7 +127,8 @@ elif [ "${OS_FAMILY}" = "rhel" ]; then
     git \
     tar \
     gzip \
-    procps-ng
+    procps-ng \
+    zstd
 fi
 
 log_success "Compilation toolchains successfully installed."

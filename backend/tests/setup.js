@@ -18,6 +18,14 @@ beforeAll(() => {
   if (auditLogger && typeof auditLogger.initDb === 'function') {
     auditLogger.initDb(inMemoryDb);
   }
+  const backupEngine = require('../backupEngine');
+  if (backupEngine && typeof backupEngine.initDb === 'function') {
+    backupEngine.initDb(inMemoryDb);
+  }
+  const scheduler = require('../scheduler');
+  if (scheduler && typeof scheduler.initDb === 'function') {
+    scheduler.initDb(inMemoryDb);
+  }
 });
 
 afterAll(() => {

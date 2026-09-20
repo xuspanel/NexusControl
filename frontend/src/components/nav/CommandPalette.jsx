@@ -15,6 +15,7 @@ import {
   FolderGit2,
   LayoutDashboard,
   CheckCircle2,
+  Archive,
   X
 } from 'lucide-react';
 import { NAV_ITEMS } from '../../config/navigation';
@@ -96,6 +97,19 @@ export default function CommandPalette({
       action: () => {
         onSelectTab('audit');
         onExecuteAction?.('verify_audit');
+      }
+    },
+    {
+      id: 'create_backup',
+      type: 'action',
+      category: 'Quick Actions',
+      label: 'Create System Snapshot (zstd)',
+      description: 'Trigger fast Zstandard compressed backup snapshot in repository',
+      icon: Archive,
+      shortcut: 'Alt + 7',
+      action: () => {
+        onSelectTab('backups');
+        onExecuteAction?.('create_backup');
       }
     },
     {

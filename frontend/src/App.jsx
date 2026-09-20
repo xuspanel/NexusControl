@@ -16,6 +16,7 @@ import TerminalView from './components/terminal/TerminalView';
 import AuditLogView from './components/audit/AuditLogView';
 import DockerView from './components/docker/DockerView';
 import VHostView from './components/vhost/VHostView';
+import BackupsView from './components/backups/BackupsView';
 
 // Adaptive Tri-Mode Navigation Components
 import SidebarNav from './components/nav/SidebarNav';
@@ -96,6 +97,10 @@ export default function App() {
         break;
       case 'restart_docker':
         setActiveTab('docker');
+        break;
+      case 'create_backup':
+      case 'view_backups':
+        setActiveTab('backups');
         break;
       default:
         break;
@@ -250,6 +255,10 @@ export default function App() {
               initialCommand={pendingTerminalCommand}
               onClearInitialCommand={() => setPendingTerminalCommand(null)}
             />
+          </main>
+        ) : activeTab === 'backups' ? (
+          <main className="max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-4">
+            <BackupsView token={token} onShowToast={showToast} />
           </main>
         ) : (
           <main className="max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-4">

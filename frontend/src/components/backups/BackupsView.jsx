@@ -113,6 +113,20 @@ export default function BackupsView({ token, onShowToast }) {
   const [savingS3, setSavingS3] = useState(false);
   const [s3TestStatus, setS3TestStatus] = useState(null);
 
+  // Google Drive Cloud Configuration Form
+  const [gdriveConfig, setGdriveConfig] = useState(null);
+  const [cloudTab, setCloudTab] = useState('s3'); // 's3' | 'gdrive'
+  const [gdriveForm, setGdriveForm] = useState({
+    clientId: '',
+    clientSecret: '',
+    refreshToken: '',
+    folderId: '',
+    active: false
+  });
+  const [testingGdrive, setTestingGdrive] = useState(false);
+  const [savingGdrive, setSavingGdrive] = useState(false);
+  const [gdriveTestStatus, setGdriveTestStatus] = useState(null);
+
   // Restore form
   const [restoreDestPath, setRestoreDestPath] = useState('/');
   const [restoreConfirmationText, setRestoreConfirmationText] = useState('');
@@ -124,11 +138,12 @@ export default function BackupsView({ token, onShowToast }) {
     setRefreshing(true);
 
     try {
-      const [backupsRes, jobsRes, dbsRes, s3Res] = await Promise.all([
+      const [backupsRes, jobsRes, dbsRes, s3Res, gdriveRes] = await Promise.all([
         fetch('/api/backups', { headers: { Authorization: `Bearer ${token}` } }),
         fetch('/api/backups/jobs', { headers: { Authorization: `Bearer ${token}` } }),
         fetch('/api/backups/detect-dbs', { headers: { Authorization: `Bearer ${token}` } }),
-        fetch('/api/backups/s3', { headers: { Authorization: `Bearer ${token}` } })
+        fetch('/api/backups/s3', { headers: { Authorization: `Bearer ${token}` } }),
+        fetch('/api/backups/gdrive', { headers: { Authorization: `Bearer ${token}` } })
       ]);
 
       if (backupsRes.ok) {
@@ -158,6 +173,20 @@ export default function BackupsView({ token, onShowToast }) {
             bucket: data.config.bucket || '',
             accessKey: data.config.accessKey || '',
             secretKey: data.config.secretKey || '',
+            active: Boolean(data.config.active)
+          });
+        }
+      }
+
+      if (gdriveRes.ok) {
+        const data = await gdriveRes.json();
+        setGdriveConfig(data.config || null);
+        if (data.config) {
+          setGdriveForm({
+            clientId: data.config.clientId || '',
+            clientSecret: data.config.clientSecret || '',
+            refreshToken: data.config.refreshToken || '',
+            folderId: data.config.folderId || '',
             active: Boolean(data.config.active)
           });
         }
@@ -317,6 +346,62 @@ export default function BackupsView({ token, onShowToast }) {
       setS3TestStatus({ success: false, message: err.message });
     } finally {
       setTestingS3(false);
+    }
+  };
+
+  // Save Google Drive Cloud Configuration
+  const handleSaveGDriveConfig = async (e) => {
+    e.preventDefault();
+    setSavingGdrive(true);
+    setGdriveTestStatus(null);
+
+    try {
+      const res = await fetch('/api/backups/gdrive', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify(gdriveForm)
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to save Google Drive configuration');
+
+      setGdriveConfig(data.config);
+      onShowToast?.('Google Drive replication configuration updated.', 'success');
+      setIsS3ModalOpen(false);
+      fetchData();
+    } catch (err) {
+      onShowToast?.(err.message, 'error');
+    } finally {
+      setSavingGdrive(false);
+    }
+  };
+
+  // Test Google Drive Connection
+  const handleTestGDriveConnection = async () => {
+    setTestingGdrive(true);
+    setGdriveTestStatus(null);
+
+    try {
+      const res = await fetch('/api/backups/gdrive/test', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify(gdriveForm)
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Connection test failed');
+
+      setGdriveTestStatus({ success: true, message: data.message || 'Connected successfully!' });
+    } catch (err) {
+      setGdriveTestStatus({ success: false, message: err.message });
+    } finally {
+      setTestingGdrive(false);
     }
   };
 
@@ -500,19 +585,19 @@ export default function BackupsView({ token, onShowToast }) {
 
         {/* Action Controls */}
         <div className="flex items-center gap-2">
-          {/* S3 Cloud Button */}
+          {/* Cloud Storage Button */}
           <button
             onClick={() => setIsS3ModalOpen(true)}
             className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium border transition-colors ${
-              s3Config?.active
+              s3Config?.active || gdriveConfig?.active
                 ? 'bg-blue-500/10 border-blue-500/30 text-blue-600 dark:text-blue-400'
                 : 'bg-zinc-50 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
             }`}
-            title="Configure Cloud Storage"
+            title="Configure Cloud Storage & Off-Site Replication"
           >
             <Cloud className="w-4 h-4" />
-            <span>Cloud S3 / R2</span>
-            {s3Config?.active && (
+            <span>Cloud Sync</span>
+            {(s3Config?.active || gdriveConfig?.active) && (
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
             )}
           </button>
@@ -577,7 +662,7 @@ export default function BackupsView({ token, onShowToast }) {
               {jobs.length}
             </span>
             <span className="text-xs text-zinc-400">
-              jobs {s3Config?.active ? '• S3 Active' : '• Local only'}
+              jobs {s3Config?.active && gdriveConfig?.active ? '• S3 & GDrive Active' : s3Config?.active ? '• S3 Active' : gdriveConfig?.active ? '• GDrive Active' : '• Local only'}
             </span>
           </div>
         </div>
@@ -673,6 +758,7 @@ export default function BackupsView({ token, onShowToast }) {
                       <th className="py-3 px-4">Archive & Filename</th>
                       <th className="py-3 px-4">Type</th>
                       <th className="py-3 px-4">Size & Security</th>
+                      <th className="py-3 px-4">Cloud Sync</th>
                       <th className="py-3 px-4">Created Date</th>
                       <th className="py-3 px-4">Target Paths</th>
                       <th className="py-3 px-4 text-right">Actions</th>
@@ -707,6 +793,33 @@ export default function BackupsView({ token, onShowToast }) {
                               <Lock className="w-3.5 h-3.5 text-emerald-500 shrink-0" title="AES-256-GCM Encrypted" />
                             )}
                             <span>{formatBytes(b.sizeBytes)}</span>
+                          </div>
+                        </td>
+                        <td className="py-3 px-4">
+                          <div className="flex items-center gap-1.5">
+                            {s3Config?.active && (
+                              <span
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20"
+                                title={`Replicated to S3 (${s3Config.provider?.toUpperCase() || 'S3'})`}
+                              >
+                                <Cloud className="w-3 h-3" />
+                                S3/R2
+                              </span>
+                            )}
+                            {gdriveConfig?.active && (
+                              <span
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"
+                                title="Replicated to Google Drive"
+                              >
+                                <HardDrive className="w-3 h-3" />
+                                GDrive
+                              </span>
+                            )}
+                            {!s3Config?.active && !gdriveConfig?.active && (
+                              <span className="text-[10px] text-zinc-400 dark:text-zinc-500">
+                                Local Only
+                              </span>
+                            )}
                           </div>
                         </td>
                         <td className="py-3 px-4 text-zinc-500 dark:text-zinc-400">
@@ -1240,15 +1353,16 @@ export default function BackupsView({ token, onShowToast }) {
         </div>
       )}
 
-      {/* 6. MODAL: S3 Cloud Storage Configuration */}
+      {/* 6. MODAL: Cloud Storage & Replication Configuration */}
       {isS3ModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
           <div className="bg-white dark:bg-[#18181b] border border-zinc-200 dark:border-zinc-800 w-full max-w-lg rounded-2xl shadow-xl overflow-hidden">
+            {/* Modal Header */}
             <div className="px-6 py-4 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Cloud className="w-5 h-5 text-blue-500" />
                 <h3 className="font-bold text-sm text-zinc-900 dark:text-zinc-100">
-                  Off-Site S3 Cloud Replication
+                  Cloud Replication & Off-Site Storage
                 </h3>
               </div>
               <button
@@ -1259,48 +1373,127 @@ export default function BackupsView({ token, onShowToast }) {
               </button>
             </div>
 
-            <form onSubmit={handleSaveS3Config} className="p-6 space-y-4">
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
-                  Cloud Storage Provider
-                </label>
-                <select
-                  value={s3Form.provider}
-                  onChange={(e) => {
-                    const prov = e.target.value;
-                    let endpoint = s3Form.endpoint;
-                    let region = s3Form.region;
-                    if (prov === 'r2') {
-                      region = 'auto';
-                    } else if (prov === 'aws') {
-                      endpoint = '';
-                      region = 'us-east-1';
-                    } else if (prov === 'minio') {
-                      endpoint = 'http://127.0.0.1:9000';
-                      region = 'us-east-1';
-                    }
-                    setS3Form({ ...s3Form, provider: prov, endpoint, region });
-                  }}
-                  className="w-full px-3 py-2 text-xs rounded-xl bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                >
-                  <option value="r2">Cloudflare R2 (Zero Egress)</option>
-                  <option value="aws">Amazon Web Services (AWS S3)</option>
-                  <option value="minio">MinIO (Self-Hosted Object Storage)</option>
-                  <option value="do">DigitalOcean Spaces</option>
-                  <option value="custom">Custom S3-Compatible Endpoint</option>
-                </select>
-              </div>
+            {/* Provider Tabs Switcher */}
+            <div className="flex border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/50 p-1.5 gap-1.5">
+              <button
+                type="button"
+                onClick={() => setCloudTab('s3')}
+                className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-semibold transition-all ${
+                  cloudTab === 's3'
+                    ? 'bg-white dark:bg-zinc-800 text-blue-600 dark:text-blue-400 shadow-xs'
+                    : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
+                }`}
+              >
+                <Cloud className="w-3.5 h-3.5" />
+                <span>Amazon S3 / R2</span>
+                {s3Config?.active && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                )}
+              </button>
 
-              <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => setCloudTab('gdrive')}
+                className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-semibold transition-all ${
+                  cloudTab === 'gdrive'
+                    ? 'bg-white dark:bg-zinc-800 text-amber-600 dark:text-amber-400 shadow-xs'
+                    : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
+                }`}
+              >
+                <HardDrive className="w-3.5 h-3.5" />
+                <span>Google Drive</span>
+                {gdriveConfig?.active && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                )}
+              </button>
+            </div>
+
+            {/* TAB 1: S3 / R2 FORM */}
+            {cloudTab === 's3' && (
+              <form onSubmit={handleSaveS3Config} className="p-6 space-y-4">
                 <div className="space-y-1.5">
                   <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
-                    Bucket Name
+                    Cloud Storage Provider
+                  </label>
+                  <select
+                    value={s3Form.provider}
+                    onChange={(e) => {
+                      const prov = e.target.value;
+                      let endpoint = s3Form.endpoint;
+                      let region = s3Form.region;
+                      if (prov === 'r2') {
+                        region = 'auto';
+                      } else if (prov === 'aws') {
+                        endpoint = '';
+                        region = 'us-east-1';
+                      } else if (prov === 'minio') {
+                        endpoint = 'http://127.0.0.1:9000';
+                        region = 'us-east-1';
+                      }
+                      setS3Form({ ...s3Form, provider: prov, endpoint, region });
+                    }}
+                    className="w-full px-3 py-2 text-xs rounded-xl bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  >
+                    <option value="r2">Cloudflare R2 (Zero Egress)</option>
+                    <option value="aws">Amazon Web Services (AWS S3)</option>
+                    <option value="minio">MinIO (Self-Hosted Object Storage)</option>
+                    <option value="do">DigitalOcean Spaces</option>
+                    <option value="custom">Custom S3-Compatible Endpoint</option>
+                  </select>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                      Bucket Name
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="my-vps-backups"
+                      value={s3Form.bucket}
+                      onChange={(e) => setS3Form({ ...s3Form, bucket: e.target.value })}
+                      required
+                      className="w-full px-3 py-2 text-xs font-mono rounded-xl bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                      Region
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="auto or us-east-1"
+                      value={s3Form.region}
+                      onChange={(e) => setS3Form({ ...s3Form, region: e.target.value })}
+                      required
+                      className="w-full px-3 py-2 text-xs font-mono rounded-xl bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                    Custom Endpoint URL (Optional for AWS S3)
                   </label>
                   <input
                     type="text"
-                    placeholder="my-vps-backups"
-                    value={s3Form.bucket}
-                    onChange={(e) => setS3Form({ ...s3Form, bucket: e.target.value })}
+                    placeholder="e.g. https://<account_id>.r2.cloudflarestorage.com"
+                    value={s3Form.endpoint}
+                    onChange={(e) => setS3Form({ ...s3Form, endpoint: e.target.value })}
+                    className="w-full px-3 py-2 text-xs font-mono rounded-xl bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                    Access Key ID
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="AKIAIOSFODNN7EXAMPLE"
+                    value={s3Form.accessKey}
+                    onChange={(e) => setS3Form({ ...s3Form, accessKey: e.target.value })}
                     required
                     className="w-full px-3 py-2 text-xs font-mono rounded-xl bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
                   />
@@ -1308,128 +1501,223 @@ export default function BackupsView({ token, onShowToast }) {
 
                 <div className="space-y-1.5">
                   <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
-                    Region
+                    Secret Access Key
                   </label>
                   <input
-                    type="text"
-                    placeholder="auto or us-east-1"
-                    value={s3Form.region}
-                    onChange={(e) => setS3Form({ ...s3Form, region: e.target.value })}
-                    required
+                    type="password"
+                    placeholder="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+                    value={s3Form.secretKey}
+                    onChange={(e) => setS3Form({ ...s3Form, secretKey: e.target.value })}
+                    required={!s3Config?.configured}
                     className="w-full px-3 py-2 text-xs font-mono rounded-xl bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
                   />
                 </div>
-              </div>
 
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
-                  Custom Endpoint URL (Optional for AWS S3)
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. https://<account_id>.r2.cloudflarestorage.com"
-                  value={s3Form.endpoint}
-                  onChange={(e) => setS3Form({ ...s3Form, endpoint: e.target.value })}
-                  className="w-full px-3 py-2 text-xs font-mono rounded-xl bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
-                  Access Key ID
-                </label>
-                <input
-                  type="text"
-                  placeholder="AKIAIOSFODNN7EXAMPLE"
-                  value={s3Form.accessKey}
-                  onChange={(e) => setS3Form({ ...s3Form, accessKey: e.target.value })}
-                  required
-                  className="w-full px-3 py-2 text-xs font-mono rounded-xl bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
-                  Secret Access Key
-                </label>
-                <input
-                  type="password"
-                  placeholder="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
-                  value={s3Form.secretKey}
-                  onChange={(e) => setS3Form({ ...s3Form, secretKey: e.target.value })}
-                  required={!s3Config?.configured}
-                  className="w-full px-3 py-2 text-xs font-mono rounded-xl bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
-
-              {/* Enable Toggle */}
-              <div className="flex items-center justify-between p-3 rounded-xl bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800">
-                <div>
-                  <span className="text-xs font-bold text-zinc-900 dark:text-zinc-100 block">
-                    Enable Off-Site Replication
-                  </span>
-                  <span className="text-[11px] text-zinc-500">
-                    Automatically upload snapshots immediately after local creation.
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setS3Form({ ...s3Form, active: !s3Form.active })}
-                  className="text-2xl"
-                >
-                  {s3Form.active ? (
-                    <ToggleRight className="w-8 h-8 text-emerald-500" />
-                  ) : (
-                    <ToggleLeft className="w-8 h-8 text-zinc-400" />
-                  )}
-                </button>
-              </div>
-
-              {/* S3 Test Status Alert */}
-              {s3TestStatus && (
-                <div
-                  className={`p-3 rounded-xl text-xs flex items-center gap-2 border ${
-                    s3TestStatus.success
-                      ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400'
-                      : 'bg-red-500/10 border-red-500/30 text-red-600 dark:text-red-400'
-                  }`}
-                >
-                  {s3TestStatus.success ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <AlertTriangle className="w-4 h-4 shrink-0" />}
-                  <span className="truncate">{s3TestStatus.message}</span>
-                </div>
-              )}
-
-              <div className="flex items-center justify-between pt-2 border-t border-zinc-200 dark:border-zinc-800">
-                <button
-                  type="button"
-                  onClick={handleTestS3Connection}
-                  disabled={testingS3 || !s3Form.bucket || !s3Form.accessKey}
-                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-zinc-200 dark:border-zinc-800 text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors disabled:opacity-50"
-                >
-                  {testingS3 ? <RotateCw className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5 text-blue-500" />}
-                  <span>{testingS3 ? 'Testing...' : 'Test Connection'}</span>
-                </button>
-
-                <div className="flex items-center gap-2">
+                {/* Enable Toggle */}
+                <div className="flex items-center justify-between p-3 rounded-xl bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800">
+                  <div>
+                    <span className="text-xs font-bold text-zinc-900 dark:text-zinc-100 block">
+                      Enable S3 Replication
+                    </span>
+                    <span className="text-[11px] text-zinc-500">
+                      Automatically upload snapshots to S3 immediately after local creation.
+                    </span>
+                  </div>
                   <button
                     type="button"
-                    onClick={() => setIsS3ModalOpen(false)}
-                    disabled={savingS3}
-                    className="px-4 py-2 rounded-xl border border-zinc-200 dark:border-zinc-800 text-xs text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+                    onClick={() => setS3Form({ ...s3Form, active: !s3Form.active })}
+                    className="text-2xl"
                   >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={savingS3}
-                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold transition-colors disabled:opacity-50"
-                  >
-                    {savingS3 && <RotateCw className="w-3.5 h-3.5 animate-spin" />}
-                    <span>{savingS3 ? 'Saving...' : 'Save Configuration'}</span>
+                    {s3Form.active ? (
+                      <ToggleRight className="w-8 h-8 text-emerald-500" />
+                    ) : (
+                      <ToggleLeft className="w-8 h-8 text-zinc-400" />
+                    )}
                   </button>
                 </div>
-              </div>
-            </form>
+
+                {/* S3 Test Status Alert */}
+                {s3TestStatus && (
+                  <div
+                    className={`p-3 rounded-xl text-xs flex items-center gap-2 border ${
+                      s3TestStatus.success
+                        ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400'
+                        : 'bg-red-500/10 border-red-500/30 text-red-600 dark:text-red-400'
+                    }`}
+                  >
+                    {s3TestStatus.success ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <AlertTriangle className="w-4 h-4 shrink-0" />}
+                    <span className="truncate">{s3TestStatus.message}</span>
+                  </div>
+                )}
+
+                <div className="flex items-center justify-between pt-2 border-t border-zinc-200 dark:border-zinc-800">
+                  <button
+                    type="button"
+                    onClick={handleTestS3Connection}
+                    disabled={testingS3 || !s3Form.bucket || !s3Form.accessKey}
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-zinc-200 dark:border-zinc-800 text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors disabled:opacity-50"
+                  >
+                    {testingS3 ? <RotateCw className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5 text-blue-500" />}
+                    <span>{testingS3 ? 'Testing...' : 'Test S3 Connection'}</span>
+                  </button>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsS3ModalOpen(false)}
+                      disabled={savingS3}
+                      className="px-4 py-2 rounded-xl border border-zinc-200 dark:border-zinc-800 text-xs text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={savingS3}
+                      className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold transition-colors disabled:opacity-50"
+                    >
+                      {savingS3 && <RotateCw className="w-3.5 h-3.5 animate-spin" />}
+                      <span>{savingS3 ? 'Saving...' : 'Save Configuration'}</span>
+                    </button>
+                  </div>
+                </div>
+              </form>
+            )}
+
+            {/* TAB 2: GOOGLE DRIVE FORM */}
+            {cloudTab === 'gdrive' && (
+              <form onSubmit={handleSaveGDriveConfig} className="p-6 space-y-4">
+                <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-700 dark:text-amber-300 flex items-start gap-2">
+                  <Info className="w-4 h-4 shrink-0 mt-0.5" />
+                  <div>
+                    <span className="font-semibold block">Zero-Memory Resumable Upload</span>
+                    <span>Directly streams multi-GB snapshots using native Node streams with no external dependencies.</span>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                    Google OAuth2 Client ID
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="123456789-abc.apps.googleusercontent.com"
+                    value={gdriveForm.clientId}
+                    onChange={(e) => setGdriveForm({ ...gdriveForm, clientId: e.target.value })}
+                    required
+                    className="w-full px-3 py-2 text-xs font-mono rounded-xl bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                    Google OAuth2 Client Secret
+                  </label>
+                  <input
+                    type="password"
+                    placeholder="GOCSPX-xxxxxxxxxxxxxxxxxxxx"
+                    value={gdriveForm.clientSecret}
+                    onChange={(e) => setGdriveForm({ ...gdriveForm, clientSecret: e.target.value })}
+                    required={!gdriveConfig?.configured}
+                    className="w-full px-3 py-2 text-xs font-mono rounded-xl bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                    Google OAuth2 Refresh Token
+                  </label>
+                  <input
+                    type="password"
+                    placeholder="1//04xxxxxxxxxxxxxxxxxxxxxxx"
+                    value={gdriveForm.refreshToken}
+                    onChange={(e) => setGdriveForm({ ...gdriveForm, refreshToken: e.target.value })}
+                    required={!gdriveConfig?.configured}
+                    className="w-full px-3 py-2 text-xs font-mono rounded-xl bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                    Target Folder ID (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="1B2c3D4e5F... (leave empty for Drive Root)"
+                    value={gdriveForm.folderId}
+                    onChange={(e) => setGdriveForm({ ...gdriveForm, folderId: e.target.value })}
+                    className="w-full px-3 py-2 text-xs font-mono rounded-xl bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                  />
+                </div>
+
+                {/* Enable Toggle */}
+                <div className="flex items-center justify-between p-3 rounded-xl bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800">
+                  <div>
+                    <span className="text-xs font-bold text-zinc-900 dark:text-zinc-100 block">
+                      Enable Google Drive Replication
+                    </span>
+                    <span className="text-[11px] text-zinc-500">
+                      Stream snapshots to Google Drive immediately after local creation.
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setGdriveForm({ ...gdriveForm, active: !gdriveForm.active })}
+                    className="text-2xl"
+                  >
+                    {gdriveForm.active ? (
+                      <ToggleRight className="w-8 h-8 text-emerald-500" />
+                    ) : (
+                      <ToggleLeft className="w-8 h-8 text-zinc-400" />
+                    )}
+                  </button>
+                </div>
+
+                {/* GDrive Test Status Alert */}
+                {gdriveTestStatus && (
+                  <div
+                    className={`p-3 rounded-xl text-xs flex items-center gap-2 border ${
+                      gdriveTestStatus.success
+                        ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400'
+                        : 'bg-red-500/10 border-red-500/30 text-red-600 dark:text-red-400'
+                    }`}
+                  >
+                    {gdriveTestStatus.success ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <AlertTriangle className="w-4 h-4 shrink-0" />}
+                    <span className="truncate">{gdriveTestStatus.message}</span>
+                  </div>
+                )}
+
+                <div className="flex items-center justify-between pt-2 border-t border-zinc-200 dark:border-zinc-800">
+                  <button
+                    type="button"
+                    onClick={handleTestGDriveConnection}
+                    disabled={testingGdrive || !gdriveForm.clientId}
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-zinc-200 dark:border-zinc-800 text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors disabled:opacity-50"
+                  >
+                    {testingGdrive ? <RotateCw className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5 text-amber-500" />}
+                    <span>{testingGdrive ? 'Testing...' : 'Test GDrive Connection'}</span>
+                  </button>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsS3ModalOpen(false)}
+                      disabled={savingGdrive}
+                      className="px-4 py-2 rounded-xl border border-zinc-200 dark:border-zinc-800 text-xs text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={savingGdrive}
+                      className="flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold transition-colors disabled:opacity-50"
+                    >
+                      {savingGdrive && <RotateCw className="w-3.5 h-3.5 animate-spin" />}
+                      <span>{savingGdrive ? 'Saving...' : 'Save Configuration'}</span>
+                    </button>
+                  </div>
+                </div>
+              </form>
+            )}
           </div>
         </div>
       )}

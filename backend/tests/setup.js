@@ -30,6 +30,10 @@ beforeAll(() => {
   if (s3Replication && typeof s3Replication.initDb === 'function') {
     s3Replication.initDb(inMemoryDb);
   }
+  const gdriveReplication = require('../gdriveReplication');
+  if (gdriveReplication && typeof gdriveReplication.initDb === 'function') {
+    gdriveReplication.initDb(inMemoryDb);
+  }
 });
 
 afterAll(() => {

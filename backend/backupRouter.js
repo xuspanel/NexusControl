@@ -5,6 +5,7 @@ const scheduler = require('./scheduler');
 const auditLogger = require('./auditLogger');
 const dbBackupAdapter = require('./dbBackupAdapter');
 const s3Replication = require('./s3Replication');
+const gdriveReplication = require('./gdriveReplication');
 
 const router = express.Router();
 
@@ -312,6 +313,69 @@ router.post('/s3/test', async (req, res) => {
 
   try {
     const result = await s3Replication.testS3Connection(customConfig);
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/backups/gdrive
+ * Retrieve Google Drive OAuth2 replication configuration
+ */
+router.get('/gdrive', (req, res) => {
+  try {
+    const config = gdriveReplication.getGDriveConfig();
+    res.json({ success: true, config });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/backups/gdrive
+ * Save Google Drive OAuth2 replication configuration
+ */
+router.post('/gdrive', (req, res) => {
+  const { clientId, clientSecret, refreshToken, folderId, active } = req.body || {};
+
+  try {
+    const config = gdriveReplication.saveGDriveConfig({
+      clientId,
+      clientSecret,
+      refreshToken,
+      folderId,
+      active
+    });
+
+    auditLogger.logEvent({
+      action: 'BACKUP_GDRIVE_CONFIG_UPDATE',
+      user: 'root',
+      ip: req.clientIp || req.ip,
+      userAgent: req.headers['user-agent'],
+      targetResource: config.folderId || 'root',
+      payload: {
+        clientId: config.clientId,
+        folderId: config.folderId,
+        active: Boolean(config.active)
+      }
+    });
+
+    res.json({ success: true, config });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/backups/gdrive/test
+ * Test Google Drive token refresh and folder accessibility
+ */
+router.post('/gdrive/test', async (req, res) => {
+  const customConfig = req.body && req.body.clientId ? req.body : null;
+
+  try {
+    const result = await gdriveReplication.testGDriveConnection(customConfig);
     res.json(result);
   } catch (err) {
     res.status(400).json({ error: err.message });

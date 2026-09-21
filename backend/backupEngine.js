@@ -5,6 +5,7 @@ const { spawn } = require('node:child_process');
 const { DatabaseSync } = require('node:sqlite');
 const dbBackupAdapter = require('./dbBackupAdapter');
 const s3Replication = require('./s3Replication');
+const gdriveReplication = require('./gdriveReplication');
 const { randomUUID } = crypto;
 
 const DEFAULT_BACKUP_DIR = '/opt/nexus_backups';
@@ -364,10 +365,15 @@ async function createBackup(name, targetPaths, type = 'manual', jobId = null) {
       databasesIncluded: dbDumpResult?.dumped || []
     };
 
-    // 3. Off-Site S3 Cloud Replication Hook (Asynchronous)
+    // 3. Multi-Cloud Off-Site Replication Hooks (Asynchronous)
     s3Replication.uploadToS3(archivePath).catch((s3Err) => {
       // S3 error already logged to auditLogger in s3Replication
       console.warn(`[BackupEngine] S3 cloud replication note: ${s3Err.message}`);
+    });
+
+    gdriveReplication.uploadToGoogleDrive(archivePath).catch((gdErr) => {
+      // GDrive error already logged to auditLogger in gdriveReplication
+      console.warn(`[BackupEngine] Google Drive replication note: ${gdErr.message}`);
     });
 
     return backupRecord;

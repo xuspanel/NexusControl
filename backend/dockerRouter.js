@@ -44,6 +44,60 @@ router.get('/status', async (req, res) => {
   }
 });
 
+async function enforceContainerJail(req, res, next) {
+  if (req.user?.role !== 'custom') {
+    return next();
+  }
+
+  const allowed = req.user?.granular_policies?.resources?.allowed_containers || [];
+  if (allowed.includes('*')) {
+    return next();
+  }
+
+  const { id } = req.params;
+  if (!id) {
+    return next();
+  }
+
+  // Fast check: direct ID or prefix match
+  let isAllowed = allowed.some(a => a === id || id.startsWith(a));
+  let containerName = id;
+
+  if (!isAllowed) {
+    try {
+      const inspect = await dockerEngine.inspectContainer(id);
+      if (inspect && inspect.Name) {
+        containerName = inspect.Name.startsWith('/') ? inspect.Name.slice(1) : inspect.Name;
+        isAllowed = allowed.includes(containerName);
+      }
+    } catch {}
+  }
+
+  if (!isAllowed) {
+    auditLogger.logEvent({
+      action: 'SECURITY_VIOLATION',
+      user: req.user?.username || 'unknown',
+      ip: req.clientIp || req.ip,
+      userAgent: req.headers['user-agent'] || 'system',
+      targetResource: `container:${containerName}`,
+      payload: {
+        reason: 'CONTAINER_JAILBREAK_ATTEMPT',
+        requestedContainer: id,
+        containerName,
+        allowedContainers: allowed
+      }
+    });
+
+    return res.status(403).json({
+      error: `Forbidden: Container '${id}' is not permitted by policy.`,
+      requestedContainer: id,
+      allowedContainers: allowed
+    });
+  }
+
+  next();
+}
+
 // 2. List Containers (with live cached resource telemetry)
 router.get('/containers', async (req, res) => {
   try {
@@ -52,50 +106,64 @@ router.get('/containers', async (req, res) => {
     }
 
     const metrics = dockerEngine.getCachedContainerMetrics();
+    let containerList = [];
+
     if (metrics.available && metrics.containers.length > 0) {
-      return res.json(metrics.containers);
+      containerList = metrics.containers;
+    } else {
+      // Fallback: Direct query if background cache has not finished initial run
+      const rawList = await dockerEngine.listContainers(true);
+      containerList = rawList.map(c => {
+        const names = (c.Names || []).map(n => n.startsWith('/') ? n.slice(1) : n);
+        const ports = (c.Ports || []).map(p => {
+          if (p.PublicPort) {
+            return `${p.IP || '0.0.0.0'}:${p.PublicPort}->${p.PrivatePort}/${p.Type}`;
+          }
+          return `${p.PrivatePort}/${p.Type}`;
+        });
+
+        return {
+          id: c.Id,
+          shortId: c.Id.slice(0, 12),
+          name: names[0] || c.Id.slice(0, 12),
+          names,
+          image: c.Image,
+          imageId: c.ImageID,
+          command: c.Command,
+          created: c.Created,
+          state: c.State,
+          status: c.Status,
+          ports,
+          cpuPercent: 0,
+          memUsed: 0,
+          memLimit: 0,
+          memPercent: 0,
+          netRx: 0,
+          netTx: 0
+        };
+      });
     }
 
-    // Fallback: Direct query if background cache has not finished initial run
-    const rawList = await dockerEngine.listContainers(true);
-    const formatted = rawList.map(c => {
-      const names = (c.Names || []).map(n => n.startsWith('/') ? n.slice(1) : n);
-      const ports = (c.Ports || []).map(p => {
-        if (p.PublicPort) {
-          return `${p.IP || '0.0.0.0'}:${p.PublicPort}->${p.PrivatePort}/${p.Type}`;
-        }
-        return `${p.PrivatePort}/${p.Type}`;
-      });
+    if (req.user?.role === 'custom') {
+      const allowed = req.user?.granular_policies?.resources?.allowed_containers || [];
+      if (!allowed.includes('*')) {
+        containerList = containerList.filter(c =>
+          allowed.includes(c.id) ||
+          allowed.includes(c.shortId) ||
+          allowed.includes(c.name) ||
+          (c.names && c.names.some(n => allowed.includes(n)))
+        );
+      }
+    }
 
-      return {
-        id: c.Id,
-        shortId: c.Id.slice(0, 12),
-        name: names[0] || c.Id.slice(0, 12),
-        names,
-        image: c.Image,
-        imageId: c.ImageID,
-        command: c.Command,
-        created: c.Created,
-        state: c.State,
-        status: c.Status,
-        ports,
-        cpuPercent: 0,
-        memUsed: 0,
-        memLimit: 0,
-        memPercent: 0,
-        netRx: 0,
-        netTx: 0
-      };
-    });
-
-    res.json(formatted);
+    res.json(containerList);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
 // 3. Inspect Container (Full JSON details)
-router.get('/containers/:id', async (req, res) => {
+router.get('/containers/:id', enforceContainerJail, async (req, res) => {
   try {
     const { id } = req.params;
     const details = await dockerEngine.inspectContainer(id);
@@ -107,7 +175,7 @@ router.get('/containers/:id', async (req, res) => {
 });
 
 // 4. Container Lifecycle Actions (start, stop, restart, kill) with Audit Chaining
-router.post('/containers/:id/action', async (req, res) => {
+router.post('/containers/:id/action', enforceContainerJail, async (req, res) => {
   try {
     const { id } = req.params;
     const { action, timeout } = req.body;
@@ -153,7 +221,7 @@ router.post('/containers/:id/action', async (req, res) => {
 });
 
 // 5. Delete Container with Audit Chaining
-router.delete('/containers/:id', async (req, res) => {
+router.delete('/containers/:id', enforceContainerJail, async (req, res) => {
   try {
     const { id } = req.params;
     const force = req.query.force === 'true' || req.query.force === '1';

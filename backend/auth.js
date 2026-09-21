@@ -76,10 +76,12 @@ async function sendEmailOtp(toEmail, code, clientIp) {
  * Generate a signed JWT token containing user identity and role
  */
 function generateToken(user) {
+  const policies = db.parsePolicies ? db.parsePolicies(user.granular_policies) : user.granular_policies;
   const payload = {
     id: user.id,
     username: user.username,
-    role: user.role
+    role: user.role,
+    granular_policies: policies || null
   };
   return jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
 }
@@ -301,10 +303,17 @@ function authMiddleware(req, res, next) {
     req.authenticated = true;
     const testRole = req.headers['x-test-role'] || 'superadmin';
     const testUsername = req.headers['x-test-user'] || 'root';
+    let testPolicies = null;
+    if (req.headers['x-test-policies']) {
+      try {
+        testPolicies = JSON.parse(req.headers['x-test-policies']);
+      } catch {}
+    }
     req.user = {
       id: 'test-admin-id',
       username: testUsername,
-      role: testRole
+      role: testRole,
+      granular_policies: testPolicies
     };
     return next();
   }
@@ -334,6 +343,20 @@ function authMiddleware(req, res, next) {
   if (decoded) {
     req.authenticated = true;
     req.user = decoded;
+
+    // For custom roles, always fetch up-to-date policies from SQLite to ensure immediate revocation
+    if (decoded.role === 'custom' && decoded.id) {
+      try {
+        const liveUser = db.getUserById(decoded.id);
+        if (liveUser) {
+          req.user.role = liveUser.role;
+          req.user.granular_policies = liveUser.granular_policies;
+        }
+      } catch (err) {
+        console.warn('[AUTH] Failed to refresh live policies for custom user:', err.message);
+      }
+    }
+
     return next();
   }
 
@@ -341,16 +364,50 @@ function authMiddleware(req, res, next) {
 }
 
 /**
- * Role-Based Access Control Middleware Factory
+ * Role-Based & Fine-Grained Access Control Middleware Factory
  * @param {string[]} allowedRoles Array of roles permitted (e.g. ['superadmin'], ['superadmin', 'operator'])
+ * @param {string} [requestedModule] Name of the requested module (e.g. 'files', 'docker', 'terminal')
  */
-function requireRole(allowedRoles = []) {
+function requireRole(allowedRoles = [], requestedModule = null) {
   return (req, res, next) => {
     if (!req.authenticated || !req.user) {
       return res.status(401).json({ error: 'Unauthorized: Authentication required.' });
     }
 
     const userRole = req.user.role;
+
+    // SuperAdmin bypasses all role and module checks (God Mode)
+    if (userRole === 'superadmin') {
+      return next();
+    }
+
+    // Dynamic FGAC check for custom role
+    if (userRole === 'custom') {
+      if (!requestedModule) {
+        if (allowedRoles.includes('custom')) {
+          return next();
+        }
+        return res.status(403).json({
+          error: 'Forbidden: Insufficient privileges for this resource.',
+          requiredRoles: allowedRoles,
+          currentRole: 'custom'
+        });
+      }
+
+      const policies = req.user.granular_policies;
+      const hasModuleAccess = Boolean(policies?.modules?.[requestedModule]);
+
+      if (!hasModuleAccess) {
+        return res.status(403).json({
+          error: `Forbidden: Access to module '${requestedModule}' denied by policy.`,
+          module: requestedModule,
+          currentRole: 'custom'
+        });
+      }
+
+      return next();
+    }
+
     if (!userRole || !allowedRoles.includes(userRole)) {
       return res.status(403).json({
         error: 'Forbidden: Insufficient privileges for this resource.',

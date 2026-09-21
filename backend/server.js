@@ -297,7 +297,7 @@ app.get('/api/system/processes', auth.authMiddleware, async (req, res) => {
   }
 });
 
-app.post('/api/system/processes/signal', auth.authMiddleware, auth.requireRole(['superadmin', 'operator']), async (req, res) => {
+app.post('/api/system/processes/signal', auth.authMiddleware, auth.requireRole(['superadmin', 'operator'], 'overview'), async (req, res) => {
   try {
     const { pid, signal } = req.body;
     if (pid === undefined) return res.status(400).json({ error: 'PID is required.' });
@@ -334,7 +334,7 @@ app.get('/api/system/services', auth.authMiddleware, async (req, res) => {
   }
 });
 
-app.post('/api/system/services/action', auth.authMiddleware, auth.requireRole(['superadmin', 'operator']), async (req, res) => {
+app.post('/api/system/services/action', auth.authMiddleware, auth.requireRole(['superadmin', 'operator'], 'overview'), async (req, res) => {
   try {
     if (!osAdapter.isSystemdAvailable()) {
       return res.status(501).json({
@@ -384,25 +384,25 @@ app.get('/api/system/logs', auth.authMiddleware, async (req, res) => {
 });
 
 // Protected User Management Endpoints (Superadmin only)
-app.use('/api/users', auth.authMiddleware, auth.requireRole(['superadmin']), userRouter);
+app.use('/api/users', auth.authMiddleware, auth.requireRole(['superadmin'], 'users'), userRouter);
 
 // Protected Terminal Endpoints (Superadmin only)
-app.use('/api/terminal', auth.authMiddleware, auth.requireRole(['superadmin']), terminalRouter);
+app.use('/api/terminal', auth.authMiddleware, auth.requireRole(['superadmin'], 'terminal'), terminalRouter);
 
-// Protected Files Manager Endpoints (Superadmin, Operator)
-app.use('/api/files', auth.authMiddleware, auth.requireRole(['superadmin', 'operator']), filesRouter);
+// Protected Files Manager Endpoints (Superadmin, Operator, Custom with files module)
+app.use('/api/files', auth.authMiddleware, auth.requireRole(['superadmin', 'operator'], 'files'), filesRouter);
 
-// Protected Enterprise Docker Engine Endpoints (Superadmin, Operator)
-app.use('/api/docker', auth.authMiddleware, auth.requireRole(['superadmin', 'operator']), dockerRouter);
+// Protected Enterprise Docker Engine Endpoints (Superadmin, Operator, Custom with docker module)
+app.use('/api/docker', auth.authMiddleware, auth.requireRole(['superadmin', 'operator'], 'docker'), dockerRouter);
 
-// Protected Enterprise Nginx vHost & Domain Manager Endpoints (Superadmin, Operator)
-app.use('/api/vhosts', auth.authMiddleware, auth.requireRole(['superadmin', 'operator']), vhostRouter);
+// Protected Enterprise Nginx vHost & Domain Manager Endpoints (Superadmin, Operator, Custom with vhosts module)
+app.use('/api/vhosts', auth.authMiddleware, auth.requireRole(['superadmin', 'operator'], 'vhosts'), vhostRouter);
 
-// Protected Automated Backup & Snapshot Engine Endpoints (Superadmin, Operator)
-app.use('/api/backups', auth.authMiddleware, auth.requireRole(['superadmin', 'operator']), backupRouter);
+// Protected Automated Backup & Snapshot Engine Endpoints (Superadmin, Operator, Custom with backups module)
+app.use('/api/backups', auth.authMiddleware, auth.requireRole(['superadmin', 'operator'], 'backups'), backupRouter);
 
-// Protected Tamper-Evident Audit Log Endpoints (Superadmin, Operator, Viewer)
-app.use('/api/audit', auth.authMiddleware, auth.requireRole(['superadmin', 'operator', 'viewer']), auditRouter);
+// Protected Tamper-Evident Audit Log Endpoints (Superadmin, Operator, Viewer, Custom with audit module)
+app.use('/api/audit', auth.authMiddleware, auth.requireRole(['superadmin', 'operator', 'viewer'], 'audit'), auditRouter);
 
 if (process.env.NODE_ENV !== 'test') {
   dockerEngine.startBackgroundSampling(3500);

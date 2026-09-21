@@ -12,23 +12,105 @@ const auditLogger = require('./auditLogger');
 const router = express.Router();
 const uploadMem = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
-// Path Traversal and Sensitive System Resource Guard
-router.use((req, res, next) => {
-  const target = req.query.path || req.body?.path || (Array.isArray(req.body?.paths) ? req.body.paths[0] : null);
-  if (target && typeof target === 'string') {
-    if (target.includes('\0')) {
-      return res.status(400).json({ error: 'Null byte injection detected in path.' });
-    }
-    if (target.includes('..')) {
-      return res.status(403).json({ error: 'Path traversal forbidden: relative parent traversal ("..") is blocked.' });
-    }
-    const normalized = path.resolve('/', path.normalize(target));
-    if (normalized === '/etc/shadow' || normalized === '/etc/gshadow') {
-      return res.status(403).json({ error: 'Access to system authentication files is strictly forbidden.' });
+function isPathInside(target, allowed) {
+  const normTarget = path.resolve('/', target);
+  const normAllowed = path.resolve('/', allowed);
+  if (normAllowed === '/') return true;
+  return normTarget === normAllowed || normTarget.startsWith(normAllowed.endsWith('/') ? normAllowed : normAllowed + '/');
+}
+
+// Strict File System Jail and Path Traversal Guard
+function enforceDirectoryJail(req, res, next) {
+  const isCustom = req.user?.role === 'custom';
+
+  const candidatePaths = [];
+  if (typeof req.query.path === 'string') candidatePaths.push(req.query.path);
+  if (typeof req.query.target === 'string') candidatePaths.push(req.query.target);
+  if (typeof req.query.destination === 'string') candidatePaths.push(req.query.destination);
+  if (typeof req.query.file === 'string') candidatePaths.push(req.query.file);
+  if (typeof req.query.dir === 'string') candidatePaths.push(req.query.dir);
+
+  if (req.body) {
+    if (typeof req.body.path === 'string') candidatePaths.push(req.body.path);
+    if (typeof req.body.target === 'string') candidatePaths.push(req.body.target);
+    if (typeof req.body.source === 'string') candidatePaths.push(req.body.source);
+    if (typeof req.body.destination === 'string') candidatePaths.push(req.body.destination);
+    if (typeof req.body.dir === 'string') candidatePaths.push(req.body.dir);
+    if (typeof req.body.from === 'string') candidatePaths.push(req.body.from);
+    if (typeof req.body.to === 'string') candidatePaths.push(req.body.to);
+    if (Array.isArray(req.body.paths)) {
+      for (const p of req.body.paths) {
+        if (typeof p === 'string') candidatePaths.push(p);
+      }
     }
   }
+
+  // If custom user accesses directory listing without explicit query, default to root check
+  if (isCustom && candidatePaths.length === 0 && req.path === '/list') {
+    candidatePaths.push('/');
+  }
+
+  if (isCustom) {
+    const allowedDirs = req.user?.granular_policies?.resources?.allowed_directories || [];
+
+    for (const target of candidatePaths) {
+      if (target.includes('\0')) {
+        auditLogger.logEvent({
+          action: 'SECURITY_VIOLATION',
+          user: req.user?.username || 'unknown',
+          ip: req.clientIp || req.ip,
+          userAgent: req.headers['user-agent'],
+          targetResource: target,
+          payload: { reason: 'NULL_BYTE_INJECTION', requestedPath: target }
+        });
+        return res.status(400).json({ error: 'Null byte injection detected in path.' });
+      }
+
+      const normalized = path.resolve('/', target);
+      const isTraversal = target.includes('..');
+      const isAllowed = allowedDirs.length > 0 && allowedDirs.some(allowed => isPathInside(normalized, allowed));
+
+      if (isTraversal || !isAllowed) {
+        auditLogger.logEvent({
+          action: 'SECURITY_VIOLATION',
+          user: req.user?.username || 'unknown',
+          ip: req.clientIp || req.ip,
+          userAgent: req.headers['user-agent'],
+          targetResource: target,
+          payload: {
+            reason: isTraversal ? 'PATH_TRAVERSAL_ATTEMPT' : 'DIRECTORY_JAILBREAK_ATTEMPT',
+            requestedPath: target,
+            resolvedPath: normalized,
+            allowedDirectories: allowedDirs
+          }
+        });
+        return res.status(403).json({
+          error: 'Forbidden: Path outside allowed directory policy.',
+          requestedPath: target,
+          allowedDirectories: allowedDirs
+        });
+      }
+    }
+  } else {
+    // Non-custom users (superadmin, operator)
+    for (const target of candidatePaths) {
+      if (target.includes('\0')) {
+        return res.status(400).json({ error: 'Null byte injection detected in path.' });
+      }
+      if (target.includes('..')) {
+        return res.status(403).json({ error: 'Path traversal forbidden: relative parent traversal ("..") is blocked.' });
+      }
+      const normalized = path.resolve('/', target);
+      if (normalized === '/etc/shadow' || normalized === '/etc/gshadow') {
+        return res.status(403).json({ error: 'Access to system authentication files is strictly forbidden.' });
+      }
+    }
+  }
+
   next();
-});
+}
+
+router.use(enforceDirectoryJail);
 
 // 1. List directory
 router.get('/list', async (req, res) => {

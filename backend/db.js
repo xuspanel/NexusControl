@@ -16,8 +16,32 @@ let updateUserLastLoginStmt;
 let deleteUserStmt;
 let countUsersStmt;
 let countSuperadminsStmt;
+let updateUserPoliciesStmt;
 
-const VALID_ROLES = ['superadmin', 'operator', 'viewer'];
+const VALID_ROLES = ['superadmin', 'operator', 'viewer', 'custom'];
+
+function formatPolicies(policies) {
+  if (!policies) return null;
+  if (typeof policies === 'string') {
+    try {
+      JSON.parse(policies);
+      return policies;
+    } catch {
+      return null;
+    }
+  }
+  return JSON.stringify(policies);
+}
+
+function parsePolicies(policiesStr) {
+  if (!policiesStr) return null;
+  if (typeof policiesStr === 'object') return policiesStr;
+  try {
+    return JSON.parse(policiesStr);
+  } catch {
+    return null;
+  }
+}
 
 function initDb(databaseInstance) {
   if (databaseInstance) {
@@ -31,10 +55,15 @@ function initDb(databaseInstance) {
       password_hash TEXT NOT NULL,
       role TEXT NOT NULL,
       totp_secret TEXT,
+      granular_policies TEXT,
       created_at INTEGER NOT NULL,
       last_login INTEGER
     );
   `);
+
+  try {
+    db.exec(`ALTER TABLE users ADD COLUMN granular_policies TEXT;`);
+  } catch {}
 
   selectUserByUsernameStmt = db.prepare(`
     SELECT * FROM users WHERE username = ? COLLATE NOCASE
@@ -47,18 +76,23 @@ function initDb(databaseInstance) {
   selectAllUsersStmt = db.prepare(`
     SELECT id, username, role, 
            CASE WHEN totp_secret IS NOT NULL AND length(totp_secret) > 0 THEN 1 ELSE 0 END as totp_enabled,
+           granular_policies,
            created_at, last_login 
     FROM users 
     ORDER BY created_at ASC
   `);
 
   insertUserStmt = db.prepare(`
-    INSERT INTO users (id, username, password_hash, role, totp_secret, created_at, last_login)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO users (id, username, password_hash, role, totp_secret, granular_policies, created_at, last_login)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   updateUserRoleStmt = db.prepare(`
-    UPDATE users SET role = ? WHERE id = ?
+    UPDATE users SET role = ?, granular_policies = ? WHERE id = ?
+  `);
+
+  updateUserPoliciesStmt = db.prepare(`
+    UPDATE users SET granular_policies = ? WHERE id = ?
   `);
 
   updateUserPasswordStmt = db.prepare(`
@@ -105,6 +139,7 @@ function seedInitialAdmin() {
         passwordHash,
         'superadmin',
         legacyTotpSecret,
+        null,
         now,
         null
       );
@@ -119,16 +154,30 @@ initDb();
 
 function getUserByUsername(username) {
   if (!username) return null;
-  return selectUserByUsernameStmt.get(username.trim()) || null;
+  const row = selectUserByUsernameStmt.get(username.trim());
+  if (!row) return null;
+  return {
+    ...row,
+    granular_policies: parsePolicies(row.granular_policies)
+  };
 }
 
 function getUserById(id) {
   if (!id) return null;
-  return selectUserByIdStmt.get(id) || null;
+  const row = selectUserByIdStmt.get(id);
+  if (!row) return null;
+  return {
+    ...row,
+    granular_policies: parsePolicies(row.granular_policies)
+  };
 }
 
 function getAllUsers() {
-  return selectAllUsersStmt.all();
+  const rows = selectAllUsersStmt.all();
+  return rows.map(r => ({
+    ...r,
+    granular_policies: parsePolicies(r.granular_policies)
+  }));
 }
 
 function countUsers() {
@@ -136,7 +185,7 @@ function countUsers() {
   return res ? res.count : 0;
 }
 
-function createUser({ username, password, role = 'operator', totpSecret = null }) {
+function createUser({ username, password, role = 'operator', totpSecret = null, granular_policies = null }) {
   if (!username || typeof username !== 'string' || !username.trim()) {
     throw new Error('Username is required.');
   }
@@ -165,6 +214,7 @@ function createUser({ username, password, role = 'operator', totpSecret = null }
   const id = crypto.randomUUID();
   const passwordHash = bcrypt.hashSync(password, 10);
   const now = Date.now();
+  const formattedPolicies = formatPolicies(granular_policies);
 
   insertUserStmt.run(
     id,
@@ -172,6 +222,7 @@ function createUser({ username, password, role = 'operator', totpSecret = null }
     passwordHash,
     role,
     totpSecret || null,
+    formattedPolicies,
     now,
     null
   );
@@ -180,13 +231,14 @@ function createUser({ username, password, role = 'operator', totpSecret = null }
     id,
     username: cleanUsername,
     role,
+    granular_policies: parsePolicies(formattedPolicies),
     totp_enabled: Boolean(totpSecret),
     created_at: now,
     last_login: null
   };
 }
 
-function updateUserRole(id, newRole) {
+function updateUserRole(id, newRole, granularPolicies = undefined) {
   if (!VALID_ROLES.includes(newRole)) {
     throw new Error(`Invalid role '${newRole}'. Must be one of: ${VALID_ROLES.join(', ')}.`);
   }
@@ -203,8 +255,35 @@ function updateUserRole(id, newRole) {
     }
   }
 
-  updateUserRoleStmt.run(newRole, id);
-  return { ...user, role: newRole };
+  let formattedPolicies;
+  if (granularPolicies !== undefined) {
+    formattedPolicies = formatPolicies(granularPolicies);
+  } else if (newRole !== 'custom') {
+    formattedPolicies = null;
+  } else {
+    formattedPolicies = formatPolicies(user.granular_policies);
+  }
+
+  updateUserRoleStmt.run(newRole, formattedPolicies, id);
+  return {
+    ...user,
+    role: newRole,
+    granular_policies: parsePolicies(formattedPolicies)
+  };
+}
+
+function updateUserPolicies(id, granularPolicies) {
+  const user = getUserById(id);
+  if (!user) {
+    throw new Error('User not found.');
+  }
+
+  const formatted = formatPolicies(granularPolicies);
+  updateUserPoliciesStmt.run(formatted, id);
+  return {
+    ...user,
+    granular_policies: parsePolicies(formatted)
+  };
 }
 
 function updateUserPassword(id, newPassword) {
@@ -254,8 +333,12 @@ module.exports = {
   countUsers,
   createUser,
   updateUserRole,
+  updateUserPolicies,
   updateUserPassword,
   updateUserLastLogin,
   deleteUser,
-  seedInitialAdmin
+  seedInitialAdmin,
+  parsePolicies,
+  formatPolicies
 };
+

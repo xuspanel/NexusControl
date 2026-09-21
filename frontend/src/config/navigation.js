@@ -107,7 +107,15 @@ export function getNavItem(id) {
   return NAV_ITEMS.find(item => item.id === normalized) || NAV_ITEMS[0];
 }
 
-export function getNavItemsForRole(role) {
+export function getNavItemsForRole(role, granularPolicies = null) {
   const activeRole = role || 'viewer';
+  if (activeRole === 'superadmin') {
+    return NAV_ITEMS;
+  }
+  if (activeRole === 'custom') {
+    const modules = granularPolicies?.modules || {};
+    return NAV_ITEMS.filter(item => Boolean(modules[item.id]));
+  }
   return NAV_ITEMS.filter(item => !item.roles || item.roles.includes(activeRole));
 }
+

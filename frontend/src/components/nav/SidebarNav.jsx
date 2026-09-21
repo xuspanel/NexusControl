@@ -24,8 +24,8 @@ export default function SidebarNav({
   onOpenCommandPalette,
   onLogout
 }) {
-  const { role, username } = useAuth();
-  const navItems = getNavItemsForRole(role);
+  const { role, username, granularPolicies } = useAuth();
+  const navItems = getNavItemsForRole(role, granularPolicies);
   return (
     <aside
       className={`hidden md:flex flex-col fixed top-0 bottom-0 left-0 z-40 bg-white dark:bg-[#121215] border-r border-zinc-200 dark:border-zinc-800/80 transition-all duration-300 ease-in-out select-none ${

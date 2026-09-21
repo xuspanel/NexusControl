@@ -35,6 +35,7 @@ export function AuthProvider({ children, token, onLogout }) {
 
   const role = user?.role || 'viewer';
   const username = user?.username || 'anonymous';
+  const granularPolicies = user?.granular_policies || null;
 
   const hasRole = useCallback((allowedRoles) => {
     if (!allowedRoles) return true;
@@ -43,19 +44,38 @@ export function AuthProvider({ children, token, onLogout }) {
     return false;
   }, [role]);
 
+  const hasModuleAccess = useCallback((moduleId) => {
+    if (!moduleId) return true;
+    if (role === 'superadmin') return true;
+    if (role === 'custom') {
+      return Boolean(granularPolicies?.modules?.[moduleId]);
+    }
+    if (role === 'operator') {
+      return ['overview', 'files', 'docker', 'vhosts', 'backups'].includes(moduleId);
+    }
+    if (role === 'viewer') {
+      return ['overview', 'audit'].includes(moduleId);
+    }
+    return false;
+  }, [role, granularPolicies]);
+
   const isSuperAdmin = role === 'superadmin';
   const isOperator = role === 'operator' || role === 'superadmin';
+  const isCustom = role === 'custom';
 
   const value = useMemo(() => ({
     user,
     role,
     username,
+    granularPolicies,
     hasRole,
+    hasModuleAccess,
     isSuperAdmin,
     isOperator,
+    isCustom,
     token,
     logout: onLogout
-  }), [user, role, username, hasRole, isSuperAdmin, isOperator, token, onLogout]);
+  }), [user, role, username, granularPolicies, hasRole, hasModuleAccess, isSuperAdmin, isOperator, isCustom, token, onLogout]);
 
   return (
     <AuthContext.Provider value={value}>
@@ -71,9 +91,12 @@ export function useAuth() {
       user: null,
       role: 'viewer',
       username: 'anonymous',
+      granularPolicies: null,
       hasRole: () => false,
+      hasModuleAccess: () => false,
       isSuperAdmin: false,
       isOperator: false,
+      isCustom: false,
       token: '',
       logout: () => {}
     };

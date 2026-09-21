@@ -28,7 +28,7 @@ export default function CommandPalette({
   onSelectTab,
   onExecuteAction
 }) {
-  const { role } = useAuth();
+  const { role, granularPolicies } = useAuth();
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef(null);
@@ -39,6 +39,7 @@ export default function CommandPalette({
     const rawActions = [
       {
         id: 'open_terminal',
+        module: 'terminal',
         type: 'action',
         category: 'Quick Actions',
         label: 'Open Root Terminal Session',
@@ -53,6 +54,7 @@ export default function CommandPalette({
       },
       {
         id: 'upload_file',
+        module: 'files',
         type: 'action',
         category: 'Quick Actions',
         label: 'Upload File to Server',
@@ -67,6 +69,7 @@ export default function CommandPalette({
       },
       {
         id: 'restart_docker',
+        module: 'docker',
         type: 'action',
         category: 'Quick Actions',
         label: 'Restart Docker Demo Container',
@@ -81,6 +84,7 @@ export default function CommandPalette({
       },
       {
         id: 'create_vhost',
+        module: 'vhosts',
         type: 'action',
         category: 'Quick Actions',
         label: 'Create New Virtual Host / Domain',
@@ -95,6 +99,7 @@ export default function CommandPalette({
       },
       {
         id: 'verify_audit',
+        module: 'audit',
         type: 'action',
         category: 'Quick Actions',
         label: 'Verify Audit Log Integrity',
@@ -109,6 +114,7 @@ export default function CommandPalette({
       },
       {
         id: 'create_backup',
+        module: 'backups',
         type: 'action',
         category: 'Quick Actions',
         label: 'Create System Snapshot (zstd)',
@@ -123,22 +129,31 @@ export default function CommandPalette({
       },
       {
         id: 'toggle_theme',
+        module: null,
         type: 'action',
         category: 'Quick Actions',
         label: 'Toggle Dark / Light Theme',
         description: 'Switch between sleek dark mode and high-contrast light mode',
         icon: SunMoon,
         shortcut: '',
-        roles: ['superadmin', 'operator', 'viewer'],
+        roles: ['superadmin', 'operator', 'viewer', 'custom'],
         action: () => onExecuteAction?.('toggle_theme')
       }
     ];
 
-    return rawActions.filter(a => !a.roles || a.roles.includes(role || 'viewer'));
-  }, [role, onSelectTab, onExecuteAction]);
+    return rawActions.filter(a => {
+      if (role === 'superadmin') return true;
+      if (role === 'custom') {
+        if (!a.module) return true;
+        return Boolean(granularPolicies?.modules?.[a.module]);
+      }
+      return !a.roles || a.roles.includes(role || 'viewer');
+    });
+  }, [role, granularPolicies, onSelectTab, onExecuteAction]);
+
   // Combined searchable entries
   const allEntries = useMemo(() => {
-    const navEntries = getNavItemsForRole(role).map(item => ({
+    const navEntries = getNavItemsForRole(role, granularPolicies).map(item => ({
       id: item.id,
       type: 'navigation',
       category: 'Navigation',
@@ -150,7 +165,7 @@ export default function CommandPalette({
     }));
 
     return [...navEntries, ...quickActions];
-  }, [role, quickActions, onSelectTab]);
+  }, [role, granularPolicies, quickActions, onSelectTab]);
 
   // Filter entries based on query
   const filteredEntries = useMemo(() => {

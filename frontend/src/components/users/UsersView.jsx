@@ -15,24 +15,86 @@ import {
   AlertCircle,
   QrCode,
   Eye,
-  Settings
+  Settings,
+  Sliders,
+  Folder,
+  Plus,
+  Boxes,
+  CheckSquare,
+  Square,
+  X,
+  Edit3
 } from 'lucide-react';
+
+const MODULE_DEFINITIONS = [
+  { id: 'overview', label: 'Overview & Telemetry', desc: 'Real-time hardware stats, system processes & services' },
+  { id: 'files', label: 'Files Manager', desc: 'File explorer, code editor, permissions & upload pipeline' },
+  { id: 'docker', label: 'Docker Engine', desc: 'Container lifecycle, inspect, stats & orchestration' },
+  { id: 'terminal', label: 'Root Terminal', desc: 'Interactive root pseudo-terminal bash shell' },
+  { id: 'vhosts', label: 'Domains & Proxy', desc: 'Nginx virtual hosts, reverse proxy & SSL certificates' },
+  { id: 'backups', label: 'Backups & Cloud', desc: 'System snapshots, S3/GDrive replication & restore' },
+  { id: 'audit', label: 'Audit Log', desc: 'Cryptographic SHA-256 tamper-evident security ledger' }
+];
+
+const DEFAULT_POLICY = {
+  modules: {
+    overview: true,
+    files: true,
+    docker: false,
+    terminal: false,
+    vhosts: false,
+    backups: false,
+    audit: false
+  },
+  resources: {
+    allowed_directories: ['/var/www/html'],
+    allowed_containers: []
+  }
+};
 
 export default function UsersView({ token, onShowToast }) {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  // Live docker containers for policy builder dropdown
+  const [availableContainers, setAvailableContainers] = useState([]);
+
   // User creation modal state
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [newUsername, setNewUsername] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [newRole, setNewRole] = useState('operator');
+  const [newPolicy, setNewPolicy] = useState(DEFAULT_POLICY);
+  const [newPathInput, setNewPathInput] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Policy edit modal state for existing user
+  const [editingUser, setEditingUser] = useState(null);
+  const [editPolicyState, setEditPolicyState] = useState(DEFAULT_POLICY);
+  const [editPathInput, setEditPathInput] = useState('');
+  const [isUpdatingPolicy, setIsUpdatingPolicy] = useState(false);
 
   // Success credential state (shows QR code & TOTP secret)
   const [createdUserCredential, setCreatedUserCredential] = useState(null);
   const [copiedSecret, setCopiedSecret] = useState(false);
+
+  const fetchContainers = useCallback(async () => {
+    try {
+      const res = await fetch('/api/docker/containers', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setAvailableContainers(Array.isArray(data) ? data : []);
+      }
+    } catch {
+      // Fallback demo container list if docker daemon is not active
+      setAvailableContainers([
+        { id: 'nexus-demo-service', name: 'nexus-demo-service', state: 'running' }
+      ]);
+    }
+  }, [token]);
 
   const fetchUsers = useCallback(async () => {
     setLoading(true);
@@ -56,7 +118,8 @@ export default function UsersView({ token, onShowToast }) {
 
   useEffect(() => {
     fetchUsers();
-  }, [fetchUsers]);
+    fetchContainers();
+  }, [fetchUsers, fetchContainers]);
 
   const handleCreateUser = async (e) => {
     e.preventDefault();
@@ -67,17 +130,20 @@ export default function UsersView({ token, onShowToast }) {
 
     setIsSubmitting(true);
     try {
+      const payload = {
+        username: newUsername.trim(),
+        password: newPassword,
+        role: newRole,
+        granular_policies: newRole === 'custom' ? newPolicy : null
+      };
+
       const res = await fetch('/api/users', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`
         },
-        body: JSON.stringify({
-          username: newUsername.trim(),
-          password: newPassword,
-          role: newRole
-        })
+        body: JSON.stringify(payload)
       });
 
       const data = await res.json();
@@ -97,6 +163,7 @@ export default function UsersView({ token, onShowToast }) {
       setNewUsername('');
       setNewPassword('');
       setNewRole('operator');
+      setNewPolicy(DEFAULT_POLICY);
       fetchUsers();
     } catch (err) {
       onShowToast?.(err.message, 'error');
@@ -107,13 +174,17 @@ export default function UsersView({ token, onShowToast }) {
 
   const handleUpdateRole = async (userId, targetRole) => {
     try {
+      const targetUser = users.find(u => u.id === userId);
       const res = await fetch(`/api/users/${userId}/role`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`
         },
-        body: JSON.stringify({ role: targetRole })
+        body: JSON.stringify({
+          role: targetRole,
+          granular_policies: targetRole === 'custom' ? (targetUser?.granular_policies || DEFAULT_POLICY) : null
+        })
       });
 
       const data = await res.json();
@@ -125,6 +196,34 @@ export default function UsersView({ token, onShowToast }) {
       fetchUsers();
     } catch (err) {
       onShowToast?.(err.message, 'error');
+    }
+  };
+
+  const handleSavePolicyEdit = async () => {
+    if (!editingUser) return;
+    setIsUpdatingPolicy(true);
+    try {
+      const res = await fetch(`/api/users/${editingUser.id}/policies`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ granular_policies: editPolicyState })
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to update user policy');
+      }
+
+      onShowToast?.(`Policy updated for ${editingUser.username}`, 'success');
+      setEditingUser(null);
+      fetchUsers();
+    } catch (err) {
+      onShowToast?.(err.message, 'error');
+    } finally {
+      setIsUpdatingPolicy(false);
     }
   };
 
@@ -177,8 +276,262 @@ export default function UsersView({ token, onShowToast }) {
       acc[u.role] = (acc[u.role] || 0) + 1;
       return acc;
     },
-    { superadmin: 0, operator: 0, viewer: 0 }
+    { superadmin: 0, operator: 0, viewer: 0, custom: 0 }
   );
+
+  // Helper to render the Visual Policy Builder form components
+  const renderPolicyBuilder = (policyState, setPolicyState, pathInput, setPathInput) => {
+    const modules = policyState.modules || {};
+    const resources = policyState.resources || { allowed_directories: [], allowed_containers: [] };
+    const allowedDirs = resources.allowed_directories || [];
+    const allowedContainers = resources.allowed_containers || [];
+    const isWildcardContainer = allowedContainers.includes('*');
+
+    const toggleModule = (modId) => {
+      setPolicyState(prev => ({
+        ...prev,
+        modules: {
+          ...prev.modules,
+          [modId]: !prev.modules?.[modId]
+        }
+      }));
+    };
+
+    const addDirectory = (pathToAdd) => {
+      const target = (pathToAdd || pathInput).trim();
+      if (!target) return;
+      if (!target.startsWith('/')) {
+        onShowToast?.('Directory path must be absolute (starting with /)', 'error');
+        return;
+      }
+      if (allowedDirs.includes(target)) return;
+      setPolicyState(prev => ({
+        ...prev,
+        resources: {
+          ...prev.resources,
+          allowed_directories: [...(prev.resources?.allowed_directories || []), target]
+        }
+      }));
+      setPathInput('');
+    };
+
+    const removeDirectory = (dirToRemove) => {
+      setPolicyState(prev => ({
+        ...prev,
+        resources: {
+          ...prev.resources,
+          allowed_directories: (prev.resources?.allowed_directories || []).filter(d => d !== dirToRemove)
+        }
+      }));
+    };
+
+    const toggleWildcardContainers = () => {
+      setPolicyState(prev => ({
+        ...prev,
+        resources: {
+          ...prev.resources,
+          allowed_containers: isWildcardContainer ? [] : ['*']
+        }
+      }));
+    };
+
+    const toggleContainer = (containerName) => {
+      if (isWildcardContainer) return;
+      setPolicyState(prev => {
+        const current = prev.resources?.allowed_containers || [];
+        const next = current.includes(containerName)
+          ? current.filter(c => c !== containerName)
+          : [...current, containerName];
+        return {
+          ...prev,
+          resources: {
+            ...prev.resources,
+            allowed_containers: next
+          }
+        };
+      });
+    };
+
+    return (
+      <div className="space-y-4 pt-2 border-t border-zinc-200 dark:border-zinc-800">
+        <div className="flex items-center gap-2">
+          <Sliders className="w-4 h-4 text-emerald-500" />
+          <h4 className="text-xs font-bold uppercase tracking-wider text-zinc-900 dark:text-zinc-100 font-mono">
+            Fine-Grained Policy Builder
+          </h4>
+        </div>
+
+        {/* 1. Module Permissions Grid */}
+        <div className="space-y-2">
+          <label className="block text-[11px] font-mono text-zinc-500 uppercase tracking-wider">
+            1. Module Access Switches
+          </label>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {MODULE_DEFINITIONS.map(mod => {
+              const enabled = Boolean(modules[mod.id]);
+              return (
+                <button
+                  key={mod.id}
+                  type="button"
+                  onClick={() => toggleModule(mod.id)}
+                  className={`p-2.5 rounded-xl border text-left flex items-start justify-between transition-all ${
+                    enabled
+                      ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-600 dark:text-emerald-400'
+                      : 'bg-zinc-50 dark:bg-zinc-900/40 border-zinc-200 dark:border-zinc-800 text-zinc-500'
+                  }`}
+                >
+                  <div className="min-w-0 pr-2">
+                    <div className="text-xs font-semibold">{mod.label}</div>
+                    <div className="text-[10px] text-zinc-400 truncate">{mod.desc}</div>
+                  </div>
+                  <div className={`w-5 h-5 rounded flex items-center justify-center shrink-0 mt-0.5 ${
+                    enabled ? 'bg-emerald-500 text-white' : 'border border-zinc-300 dark:border-zinc-700'
+                  }`}>
+                    {enabled && <Check className="w-3.5 h-3.5" />}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* 2. File System Directory Jail */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <label className="block text-[11px] font-mono text-zinc-500 uppercase tracking-wider">
+              2. File System Jail (Allowed Directories)
+            </label>
+            <span className="text-[10px] font-mono text-emerald-500 font-semibold">
+              Strict Traversal Protection
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-zinc-400">
+                <Folder className="w-3.5 h-3.5" />
+              </div>
+              <input
+                type="text"
+                value={pathInput}
+                onChange={(e) => setPathInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    addDirectory();
+                  }
+                }}
+                placeholder="e.g. /var/www/html or /opt/nexus-data"
+                className="w-full bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-800 rounded-xl pl-8 pr-3 py-1.5 text-xs font-mono text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-none focus:border-emerald-500"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={() => addDirectory()}
+              className="px-3 py-1.5 rounded-xl bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-xs font-medium text-zinc-700 dark:text-zinc-300 transition-colors flex items-center gap-1 shrink-0"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Add Path</span>
+            </button>
+          </div>
+
+          {/* Preset Chips */}
+          <div className="flex flex-wrap gap-1.5 text-[10px] font-mono">
+            <span className="text-zinc-400 self-center">Presets:</span>
+            {['/var/www/html', '/opt/nexus-demo-data', '/home', '/etc/nginx'].map(p => (
+              <button
+                key={p}
+                type="button"
+                onClick={() => addDirectory(p)}
+                className="px-2 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-emerald-500/15 hover:text-emerald-600 transition-colors"
+              >
+                + {p}
+              </button>
+            ))}
+          </div>
+
+          {/* Directory Pill List */}
+          <div className="space-y-1.5 max-h-28 overflow-y-auto">
+            {allowedDirs.length === 0 ? (
+              <div className="p-2 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400 text-[11px] flex items-center gap-1.5">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                <span>No directories specified. User will have zero file access.</span>
+              </div>
+            ) : (
+              allowedDirs.map(d => (
+                <div
+                  key={d}
+                  className="flex items-center justify-between px-2.5 py-1 rounded-lg bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-xs font-mono"
+                >
+                  <span className="text-zinc-800 dark:text-zinc-200 truncate">{d}</span>
+                  <button
+                    type="button"
+                    onClick={() => removeDirectory(d)}
+                    className="text-zinc-400 hover:text-rose-500 p-0.5"
+                    title="Remove path"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* 3. Docker Container Jail */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <label className="block text-[11px] font-mono text-zinc-500 uppercase tracking-wider">
+              3. Docker Container Jail
+            </label>
+            <button
+              type="button"
+              onClick={toggleWildcardContainers}
+              className={`text-[10px] font-mono px-2 py-0.5 rounded border transition-colors ${
+                isWildcardContainer
+                  ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-600 dark:text-emerald-400 font-semibold'
+                  : 'bg-zinc-100 dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700 text-zinc-500'
+              }`}
+            >
+              {isWildcardContainer ? '✓ All Containers (* Wildcard)' : '+ Enable All Containers (*)'}
+            </button>
+          </div>
+
+          {!isWildcardContainer && (
+            <div className="p-2 rounded-xl bg-zinc-50 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 space-y-1.5 max-h-36 overflow-y-auto">
+              {availableContainers.length === 0 ? (
+                <div className="text-[11px] font-mono text-zinc-400 text-center py-2">
+                  No active containers detected on host.
+                </div>
+              ) : (
+                availableContainers.map(c => {
+                  const cName = c.name || c.id?.slice(0, 12);
+                  const isChecked = allowedContainers.includes(cName) || allowedContainers.includes(c.id);
+                  return (
+                    <label
+                      key={c.id || cName}
+                      className="flex items-center justify-between p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800/80 cursor-pointer text-xs"
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => toggleContainer(cName)}
+                          className="rounded border-zinc-300 text-emerald-600 focus:ring-emerald-500"
+                        />
+                        <span className="font-mono text-zinc-800 dark:text-zinc-200 truncate">{cName}</span>
+                      </div>
+                      <span className="text-[10px] font-mono text-zinc-400">{c.state || 'active'}</span>
+                    </label>
+                  );
+                })
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="space-y-6">
@@ -198,7 +551,7 @@ export default function UsersView({ token, onShowToast }) {
               </span>
             </div>
             <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-              Role-Based Access Control (RBAC), multi-tenant operators, and cryptographic TOTP 2FA onboarding
+              Role-Based Access Control (RBAC), Fine-Grained Policies (FGAC), and cryptographic TOTP 2FA
             </p>
           </div>
         </div>
@@ -225,8 +578,8 @@ export default function UsersView({ token, onShowToast }) {
         </div>
       </div>
 
-      {/* 2. RBAC Summary Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      {/* 2. RBAC & FGAC Summary Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="p-4 rounded-xl bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 flex items-center justify-between">
           <div className="space-y-1">
             <div className="text-xs font-medium text-zinc-500 dark:text-zinc-400 flex items-center gap-1.5">
@@ -252,7 +605,7 @@ export default function UsersView({ token, onShowToast }) {
             <div className="text-2xl font-bold font-mono text-zinc-900 dark:text-zinc-100">
               {roleCounts.operator}
             </div>
-            <p className="text-[11px] text-zinc-400">Docker, Files, Domains, Backups (No Shell)</p>
+            <p className="text-[11px] text-zinc-400">Docker, Files, Domains, Backups</p>
           </div>
           <div className="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-500">
             <ShieldCheck className="w-5 h-5" />
@@ -268,10 +621,26 @@ export default function UsersView({ token, onShowToast }) {
             <div className="text-2xl font-bold font-mono text-zinc-900 dark:text-zinc-100">
               {roleCounts.viewer}
             </div>
-            <p className="text-[11px] text-zinc-400">Read-only Telemetry & Audit Logs</p>
+            <p className="text-[11px] text-zinc-400">Read-only Telemetry & Audit</p>
           </div>
           <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-500">
             <Eye className="w-5 h-5" />
+          </div>
+        </div>
+
+        <div className="p-4 rounded-xl bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 flex items-center justify-between">
+          <div className="space-y-1">
+            <div className="text-xs font-medium text-zinc-500 dark:text-zinc-400 flex items-center gap-1.5">
+              <Sliders className="w-3.5 h-3.5 text-emerald-500" />
+              <span>Custom (FGAC)</span>
+            </div>
+            <div className="text-2xl font-bold font-mono text-zinc-900 dark:text-zinc-100">
+              {roleCounts.custom || 0}
+            </div>
+            <p className="text-[11px] text-zinc-400">Jailed directories & containers</p>
+          </div>
+          <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-500">
+            <Sliders className="w-5 h-5" />
           </div>
         </div>
       </div>
@@ -304,7 +673,8 @@ export default function UsersView({ token, onShowToast }) {
               <thead className="bg-zinc-50 dark:bg-zinc-900/50 border-b border-zinc-200 dark:border-zinc-800 text-[11px] font-mono text-zinc-500">
                 <tr>
                   <th className="py-3 px-4">User</th>
-                  <th className="py-3 px-4">Role & Privileges</th>
+                  <th className="py-3 px-4">Role</th>
+                  <th className="py-3 px-4">Granular Scope</th>
                   <th className="py-3 px-4">2FA Status</th>
                   <th className="py-3 px-4">Created</th>
                   <th className="py-3 px-4">Last Login</th>
@@ -314,6 +684,9 @@ export default function UsersView({ token, onShowToast }) {
               <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
                 {users.map((u) => {
                   const isRoot = u.username === 'admin';
+                  const isCustom = u.role === 'custom';
+                  const policies = u.granular_policies;
+
                   return (
                     <tr key={u.id} className="hover:bg-zinc-50/50 dark:hover:bg-zinc-900/30 transition-colors">
                       <td className="py-3.5 px-4">
@@ -323,6 +696,8 @@ export default function UsersView({ token, onShowToast }) {
                               ? 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20'
                               : u.role === 'operator'
                               ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20'
+                              : u.role === 'custom'
+                              ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
                               : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20'
                           }`}>
                             {u.username.substring(0, 2)}
@@ -351,19 +726,54 @@ export default function UsersView({ token, onShowToast }) {
                               ? 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/30'
                               : u.role === 'operator'
                               ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30'
+                              : u.role === 'custom'
+                              ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
                               : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30'
                           } ${isRoot ? 'opacity-70 cursor-not-allowed' : 'hover:border-purple-500'}`}
                         >
                           <option value="superadmin" className="bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100">
-                            SuperAdmin (Full Root)
+                            SuperAdmin
                           </option>
                           <option value="operator" className="bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100">
-                            Operator (No Terminal)
+                            Operator
                           </option>
                           <option value="viewer" className="bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100">
-                            Viewer (Read Only)
+                            Viewer
+                          </option>
+                          <option value="custom" className="bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100">
+                            Custom (FGAC)
                           </option>
                         </select>
+                      </td>
+
+                      <td className="py-3.5 px-4">
+                        {isCustom ? (
+                          <div className="flex items-center gap-2">
+                            <div className="text-[10px] font-mono space-y-0.5">
+                              <div className="text-zinc-600 dark:text-zinc-300">
+                                Modules: {Object.entries(policies?.modules || {}).filter(([_, v]) => v).map(([k]) => k).join(', ') || 'none'}
+                              </div>
+                              <div className="text-zinc-400">
+                                Jails: {policies?.resources?.allowed_directories?.length || 0} dirs • {policies?.resources?.allowed_containers?.length || 0} containers
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => {
+                                setEditingUser(u);
+                                setEditPolicyState(u.granular_policies || DEFAULT_POLICY);
+                              }}
+                              className="px-2 py-1 rounded bg-zinc-100 dark:bg-zinc-800 hover:bg-emerald-500/20 hover:text-emerald-600 text-[10px] font-medium transition-colors shrink-0 flex items-center gap-1"
+                              title="Edit User Policy"
+                            >
+                              <Edit3 className="w-3 h-3" />
+                              <span>Edit Policy</span>
+                            </button>
+                          </div>
+                        ) : (
+                          <span className="text-zinc-400 text-[11px] font-mono">
+                            {u.role === 'superadmin' ? 'Unrestricted Root' : 'Standard Role Matrix'}
+                          </span>
+                        )}
                       </td>
 
                       <td className="py-3.5 px-4">
@@ -406,13 +816,66 @@ export default function UsersView({ token, onShowToast }) {
         )}
       </div>
 
-      {/* 4. Create User Modal */}
+      {/* 4. Edit Existing User Policy Modal */}
+      {editingUser && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="w-full max-w-2xl max-h-[90vh] flex flex-col bg-white dark:bg-[#121215] rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="p-5 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between shrink-0">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 flex items-center justify-center">
+                  <Sliders className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
+                    Edit Custom Policy: {editingUser.username}
+                  </h3>
+                  <p className="text-[11px] text-zinc-500">
+                    Changes apply immediately in real-time without re-login
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingUser(null)}
+                className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 text-sm font-mono"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-6 overflow-y-auto flex-1">
+              {renderPolicyBuilder(editPolicyState, setEditPolicyState, editPathInput, setEditPathInput)}
+            </div>
+
+            <div className="p-4 bg-zinc-50 dark:bg-zinc-900/50 border-t border-zinc-200 dark:border-zinc-800 flex items-center justify-end gap-2.5 shrink-0">
+              <button
+                type="button"
+                onClick={() => setEditingUser(null)}
+                className="px-4 py-2 rounded-xl border border-zinc-200 dark:border-zinc-700 text-xs font-medium text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSavePolicyEdit}
+                disabled={isUpdatingPolicy}
+                className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-semibold shadow-xs transition-colors flex items-center gap-2"
+              >
+                {isUpdatingPolicy && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+                <span>Save Live Policy</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 5. Create User Modal */}
       {isCreateModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="w-full max-w-lg bg-white dark:bg-[#121215] rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+          <div className="w-full max-w-2xl max-h-[90vh] flex flex-col bg-white dark:bg-[#121215] rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
             {createdUserCredential ? (
               // Step 2: Show QR Code and Generated Credentials
-              <div className="p-6 space-y-5">
+              <div className="p-6 space-y-5 overflow-y-auto">
                 <div className="text-center space-y-1.5">
                   <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 flex items-center justify-center mx-auto mb-2">
                     <Check className="w-6 h-6" />
@@ -483,9 +946,9 @@ export default function UsersView({ token, onShowToast }) {
                 </button>
               </div>
             ) : (
-              // Step 1: User Details Form
-              <form onSubmit={handleCreateUser}>
-                <div className="p-5 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between">
+              // Step 1: User Details Form & Visual Policy Builder
+              <form onSubmit={handleCreateUser} className="flex flex-col flex-1 overflow-hidden">
+                <div className="p-5 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between shrink-0">
                   <div className="flex items-center space-x-2.5">
                     <div className="w-8 h-8 rounded-lg bg-purple-500/10 border border-purple-500/20 text-purple-500 flex items-center justify-center">
                       <UserPlus className="w-4 h-4" />
@@ -503,7 +966,7 @@ export default function UsersView({ token, onShowToast }) {
                   </button>
                 </div>
 
-                <div className="p-6 space-y-4">
+                <div className="p-6 space-y-4 overflow-y-auto flex-1">
                   {/* Username */}
                   <div className="space-y-1.5">
                     <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300">
@@ -553,12 +1016,12 @@ export default function UsersView({ token, onShowToast }) {
                     </div>
                   </div>
 
-                  {/* Role Selection */}
+                  {/* Role Selection (4 roles) */}
                   <div className="space-y-1.5">
                     <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300">
                       Assigned Role
                     </label>
-                    <div className="grid grid-cols-3 gap-2.5">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
                       <button
                         type="button"
                         onClick={() => setNewRole('superadmin')}
@@ -569,7 +1032,7 @@ export default function UsersView({ token, onShowToast }) {
                         }`}
                       >
                         <div className="font-semibold text-xs mb-0.5">SuperAdmin</div>
-                        <div className="text-[10px] text-zinc-400">Full shell & users</div>
+                        <div className="text-[10px] text-zinc-400">Full shell & root</div>
                       </button>
 
                       <button
@@ -597,11 +1060,27 @@ export default function UsersView({ token, onShowToast }) {
                         <div className="font-semibold text-xs mb-0.5">Viewer</div>
                         <div className="text-[10px] text-zinc-400">Telemetry & Logs</div>
                       </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setNewRole('custom')}
+                        className={`p-3 rounded-xl border text-left transition-all ${
+                          newRole === 'custom'
+                            ? 'bg-emerald-500/10 border-emerald-500/50 text-emerald-600 dark:text-emerald-400 ring-1 ring-emerald-500/30'
+                            : 'bg-zinc-50 dark:bg-zinc-900/40 border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 hover:border-zinc-300'
+                        }`}
+                      >
+                        <div className="font-semibold text-xs mb-0.5">Custom</div>
+                        <div className="text-[10px] text-zinc-400">Granular FGAC</div>
+                      </button>
                     </div>
                   </div>
+
+                  {/* If Custom Role selected, reveal Visual Policy Builder */}
+                  {newRole === 'custom' && renderPolicyBuilder(newPolicy, setNewPolicy, newPathInput, setNewPathInput)}
                 </div>
 
-                <div className="p-4 bg-zinc-50 dark:bg-zinc-900/50 border-t border-zinc-200 dark:border-zinc-800 flex items-center justify-end gap-2.5">
+                <div className="p-4 bg-zinc-50 dark:bg-zinc-900/50 border-t border-zinc-200 dark:border-zinc-800 flex items-center justify-end gap-2.5 shrink-0">
                   <button
                     type="button"
                     onClick={() => setIsCreateModalOpen(false)}

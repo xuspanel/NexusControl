@@ -27,7 +27,7 @@ router.get('/', (req, res) => {
  * Create a new user with generated TOTP secret and QR code
  */
 router.post('/', async (req, res) => {
-  const { username, password, role = 'operator' } = req.body || {};
+  const { username, password, role = 'operator', granular_policies = null } = req.body || {};
 
   try {
     const totpSecret = generateSecret();
@@ -42,7 +42,8 @@ router.post('/', async (req, res) => {
       username,
       password,
       role,
-      totpSecret
+      totpSecret,
+      granular_policies
     });
 
     auditLogger.logEvent({
@@ -54,7 +55,8 @@ router.post('/', async (req, res) => {
       payload: {
         id: user.id,
         username: user.username,
-        role: user.role
+        role: user.role,
+        granular_policies: user.granular_policies
       }
     });
 
@@ -71,14 +73,14 @@ router.post('/', async (req, res) => {
 
 /**
  * PATCH /api/users/:id/role
- * Update role of an existing user
+ * Update role and optionally policies of an existing user
  */
 router.patch('/:id/role', (req, res) => {
   const { id } = req.params;
-  const { role } = req.body || {};
+  const { role, granular_policies } = req.body || {};
 
   try {
-    const updated = db.updateUserRole(id, role);
+    const updated = db.updateUserRole(id, role, granular_policies);
 
     auditLogger.logEvent({
       action: 'USER_ROLE_UPDATE',
@@ -88,7 +90,37 @@ router.patch('/:id/role', (req, res) => {
       targetResource: updated.username,
       payload: {
         id: updated.id,
-        newRole: role
+        newRole: role,
+        granular_policies: updated.granular_policies
+      }
+    });
+
+    res.json({ success: true, user: updated });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+/**
+ * PATCH /api/users/:id/policies
+ * Update granular policies of an existing user
+ */
+router.patch('/:id/policies', (req, res) => {
+  const { id } = req.params;
+  const { granular_policies } = req.body || {};
+
+  try {
+    const updated = db.updateUserPolicies(id, granular_policies);
+
+    auditLogger.logEvent({
+      action: 'USER_POLICIES_UPDATE',
+      user: req.user?.username || 'system',
+      ip: req.clientIp || req.ip,
+      userAgent: req.headers['user-agent'],
+      targetResource: updated.username,
+      payload: {
+        id: updated.id,
+        granular_policies: updated.granular_policies
       }
     });
 

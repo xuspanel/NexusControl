@@ -5,6 +5,7 @@ const { generateSecret, generateURI } = require('otplib');
 const db = require('./db');
 const auditLogger = require('./auditLogger');
 const { requireRole } = require('./auth');
+const wireguardEngine = require('./wireguardEngine');
 
 // All User Management endpoints strictly require superadmin role
 router.use(requireRole(['superadmin']));
@@ -24,10 +25,17 @@ router.get('/', (req, res) => {
 
 /**
  * POST /api/users
- * Create a new user with generated TOTP secret and QR code
+ * Create a new user with generated TOTP secret and QR code, with optional WireGuard VPN profile
  */
 router.post('/', async (req, res) => {
-  const { username, password, role = 'operator', granular_policies = null } = req.body || {};
+  const {
+    username,
+    password,
+    role = 'operator',
+    granular_policies = null,
+    generate_vpn = false,
+    generateVpn = false
+  } = req.body || {};
 
   try {
     const totpSecret = generateSecret();
@@ -60,11 +68,35 @@ router.post('/', async (req, res) => {
       }
     });
 
+    let vpnProfile = null;
+    if (generate_vpn || generateVpn) {
+      try {
+        vpnProfile = await wireguardEngine.generatePeer(user.username, user.id);
+        auditLogger.logEvent({
+          action: 'VPN_PEER_CREATED',
+          user: req.user?.username || 'system',
+          ip: req.clientIp || req.ip,
+          userAgent: req.headers['user-agent'],
+          targetResource: vpnProfile.publicKey,
+          payload: {
+            peerId: vpnProfile.id,
+            userId: user.id,
+            username: user.username,
+            internalIp: vpnProfile.internalIp,
+            publicKey: vpnProfile.publicKey
+          }
+        });
+      } catch (vpnErr) {
+        console.error('[UserRouter] WireGuard peer generation error:', vpnErr.message);
+      }
+    }
+
     res.status(201).json({
       success: true,
       user,
       totpSecret,
-      qrCodeDataUrl
+      qrCodeDataUrl,
+      vpnProfile
     });
   } catch (err) {
     res.status(400).json({ error: err.message });

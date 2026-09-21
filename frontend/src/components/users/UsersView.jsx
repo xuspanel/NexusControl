@@ -23,7 +23,8 @@ import {
   CheckSquare,
   Square,
   X,
-  Edit3
+  Edit3,
+  Download
 } from 'lucide-react';
 
 const MODULE_DEFINITIONS = [
@@ -78,6 +79,9 @@ export default function UsersView({ token, onShowToast }) {
   // Success credential state (shows QR code & TOTP secret)
   const [createdUserCredential, setCreatedUserCredential] = useState(null);
   const [copiedSecret, setCopiedSecret] = useState(false);
+  const [copiedVpnConfig, setCopiedVpnConfig] = useState(false);
+  const [generateVpn, setGenerateVpn] = useState(false);
+  const [activeCredentialTab, setActiveCredentialTab] = useState('2fa');
 
   const fetchContainers = useCallback(async () => {
     try {
@@ -134,7 +138,8 @@ export default function UsersView({ token, onShowToast }) {
         username: newUsername.trim(),
         password: newPassword,
         role: newRole,
-        granular_policies: newRole === 'custom' ? newPolicy : null
+        granular_policies: newRole === 'custom' ? newPolicy : null,
+        generate_vpn: generateVpn
       };
 
       const res = await fetch('/api/users', {
@@ -157,13 +162,16 @@ export default function UsersView({ token, onShowToast }) {
         role: data.user.role,
         totpSecret: data.totpSecret,
         qrCodeDataUrl: data.qrCodeDataUrl,
-        password: newPassword
+        password: newPassword,
+        vpnProfile: data.vpnProfile || null
       });
+      setActiveCredentialTab('2fa');
 
       setNewUsername('');
       setNewPassword('');
       setNewRole('operator');
       setNewPolicy(DEFAULT_POLICY);
+      setGenerateVpn(false);
       fetchUsers();
     } catch (err) {
       onShowToast?.(err.message, 'error');
@@ -884,44 +892,131 @@ export default function UsersView({ token, onShowToast }) {
                     User Successfully Created!
                   </h3>
                   <p className="text-xs text-zinc-500">
-                    Scan the QR code below using Google Authenticator, 1Password, or Authy to complete 2FA setup.
+                    {createdUserCredential.vpnProfile
+                      ? 'Configure user 2FA and download or scan the WireGuard Zero Trust VPN profile.'
+                      : 'Scan the QR code below using Google Authenticator, 1Password, or Authy to complete 2FA setup.'}
                   </p>
                 </div>
 
-                {/* QR Code Container */}
-                <div className="p-4 bg-white rounded-xl border border-zinc-200 flex flex-col items-center justify-center max-w-[200px] mx-auto shadow-xs">
-                  {createdUserCredential.qrCodeDataUrl ? (
-                    <img
-                      src={createdUserCredential.qrCodeDataUrl}
-                      alt="TOTP Setup QR Code"
-                      className="w-40 h-40 object-contain"
-                    />
-                  ) : (
-                    <div className="w-40 h-40 flex items-center justify-center text-xs text-zinc-400 font-mono">
-                      Generating QR...
-                    </div>
-                  )}
-                </div>
-
-                {/* Secret Key Display */}
-                <div className="space-y-2">
-                  <label className="block text-[11px] font-mono text-zinc-500 uppercase tracking-wider">
-                    Manual 2FA Secret Key
-                  </label>
-                  <div className="flex items-center gap-2 p-2.5 rounded-xl bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800">
-                    <code className="flex-1 font-mono text-xs text-purple-600 dark:text-purple-400 tracking-wider select-all truncate">
-                      {createdUserCredential.totpSecret}
-                    </code>
+                {/* Segmented Tab Switcher if VPN Profile exists */}
+                {createdUserCredential.vpnProfile && (
+                  <div className="flex p-1 rounded-xl bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-xs font-medium">
                     <button
                       type="button"
-                      onClick={() => copyToClipboard(createdUserCredential.totpSecret)}
-                      className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-colors"
-                      title="Copy Secret"
+                      onClick={() => setActiveCredentialTab('2fa')}
+                      className={`flex-1 py-1.5 rounded-lg transition-all flex items-center justify-center gap-1.5 ${
+                        activeCredentialTab === '2fa'
+                          ? 'bg-white dark:bg-zinc-800 text-zinc-900 dark:text-white shadow-xs font-semibold'
+                          : 'text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300'
+                      }`}
                     >
-                      {copiedSecret ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
+                      <Lock className="w-3.5 h-3.5 text-purple-500" />
+                      2FA Authenticator Setup
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setActiveCredentialTab('vpn')}
+                      className={`flex-1 py-1.5 rounded-lg transition-all flex items-center justify-center gap-1.5 ${
+                        activeCredentialTab === 'vpn'
+                          ? 'bg-white dark:bg-zinc-800 text-zinc-900 dark:text-white shadow-xs font-semibold'
+                          : 'text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300'
+                      }`}
+                    >
+                      <Shield className="w-3.5 h-3.5 text-emerald-500" />
+                      WireGuard VPN Profile
                     </button>
                   </div>
-                </div>
+                )}
+
+                {activeCredentialTab === 'vpn' && createdUserCredential.vpnProfile ? (
+                  <div className="space-y-4">
+                    {/* WireGuard QR Code Container */}
+                    <div className="p-4 bg-white rounded-xl border border-zinc-200 flex flex-col items-center justify-center max-w-[200px] mx-auto shadow-xs">
+                      {createdUserCredential.vpnProfile.qrCodeDataUrl ? (
+                        <img
+                          src={createdUserCredential.vpnProfile.qrCodeDataUrl}
+                          alt="WireGuard Mobile QR Code"
+                          className="w-40 h-40 object-contain"
+                        />
+                      ) : (
+                        <div className="w-40 h-40 flex items-center justify-center text-xs text-zinc-400 font-mono">
+                          Generating QR...
+                        </div>
+                      )}
+                    </div>
+                    <div className="text-center text-[11px] font-mono text-zinc-500">
+                      Assigned Internal IP: <span className="font-bold text-emerald-500">{createdUserCredential.vpnProfile.internalIp}/32</span>
+                    </div>
+
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const blob = new Blob([createdUserCredential.vpnProfile.clientConfig], { type: 'text/plain;charset=utf-8' });
+                          const url = URL.createObjectURL(blob);
+                          const a = document.createElement('a');
+                          a.href = url;
+                          a.download = `${createdUserCredential.username}-wg0.conf`;
+                          a.click();
+                          URL.revokeObjectURL(url);
+                        }}
+                        className="flex-1 py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-xs transition-colors flex items-center justify-center gap-2"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        Download .conf Profile
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText(createdUserCredential.vpnProfile.clientConfig);
+                          setCopiedVpnConfig(true);
+                          setTimeout(() => setCopiedVpnConfig(false), 2000);
+                        }}
+                        className="py-2 px-3 rounded-xl border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-xs font-medium transition-colors flex items-center justify-center gap-1.5"
+                      >
+                        {copiedVpnConfig ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+                        {copiedVpnConfig ? 'Copied' : 'Copy'}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    {/* QR Code Container */}
+                    <div className="p-4 bg-white rounded-xl border border-zinc-200 flex flex-col items-center justify-center max-w-[200px] mx-auto shadow-xs">
+                      {createdUserCredential.qrCodeDataUrl ? (
+                        <img
+                          src={createdUserCredential.qrCodeDataUrl}
+                          alt="TOTP Setup QR Code"
+                          className="w-40 h-40 object-contain"
+                        />
+                      ) : (
+                        <div className="w-40 h-40 flex items-center justify-center text-xs text-zinc-400 font-mono">
+                          Generating QR...
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Secret Key Display */}
+                    <div className="space-y-2">
+                      <label className="block text-[11px] font-mono text-zinc-500 uppercase tracking-wider">
+                        Manual 2FA Secret Key
+                      </label>
+                      <div className="flex items-center gap-2 p-2.5 rounded-xl bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800">
+                        <code className="flex-1 font-mono text-xs text-purple-600 dark:text-purple-400 tracking-wider select-all truncate">
+                          {createdUserCredential.totpSecret}
+                        </code>
+                        <button
+                          type="button"
+                          onClick={() => copyToClipboard(createdUserCredential.totpSecret)}
+                          className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-colors"
+                          title="Copy Secret"
+                        >
+                          {copiedSecret ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                )}
 
                 {/* User Details Summary */}
                 <div className="p-3 rounded-xl bg-zinc-50 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800/80 text-xs space-y-1 font-mono">
@@ -933,6 +1028,12 @@ export default function UsersView({ token, onShowToast }) {
                     <span className="text-zinc-400">Assigned Role:</span>
                     <span className="font-semibold text-purple-600 dark:text-purple-400 uppercase">{createdUserCredential.role}</span>
                   </div>
+                  {createdUserCredential.vpnProfile && (
+                    <div className="flex justify-between">
+                      <span className="text-zinc-400">WireGuard VPN IP:</span>
+                      <span className="font-semibold text-emerald-500">{createdUserCredential.vpnProfile.internalIp}</span>
+                    </div>
+                  )}
                 </div>
 
                 <button
@@ -940,9 +1041,9 @@ export default function UsersView({ token, onShowToast }) {
                     setCreatedUserCredential(null);
                     setIsCreateModalOpen(false);
                   }}
-                  className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-xs transition-colors"
+                  className="w-full py-2.5 rounded-xl bg-zinc-900 dark:bg-zinc-100 hover:bg-zinc-800 dark:hover:bg-white text-white dark:text-zinc-900 text-xs font-semibold transition-colors"
                 >
-                  Done & Close
+                  I have saved credentials & keys
                 </button>
               </div>
             ) : (
@@ -1078,6 +1179,32 @@ export default function UsersView({ token, onShowToast }) {
 
                   {/* If Custom Role selected, reveal Visual Policy Builder */}
                   {newRole === 'custom' && renderPolicyBuilder(newPolicy, setNewPolicy, newPathInput, setNewPathInput)}
+
+                  {/* WireGuard Zero Trust VPN Profile Provisioning Checkbox */}
+                  <div className="p-3.5 rounded-xl bg-zinc-50 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-500">
+                        <Shield className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <div className="text-xs font-semibold text-zinc-900 dark:text-zinc-100">
+                          Generate WireGuard VPN Profile
+                        </div>
+                        <div className="text-[10px] text-zinc-500">
+                          Assigns a 10.8.0.x IP address and renders mobile/desktop configuration QR code
+                        </div>
+                      </div>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={generateVpn}
+                        onChange={(e) => setGenerateVpn(e.target.checked)}
+                        className="sr-only peer"
+                      />
+                      <div className="w-9 h-5 bg-zinc-300 dark:bg-zinc-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-zinc-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500"></div>
+                    </label>
+                  </div>
                 </div>
 
                 <div className="p-4 bg-zinc-50 dark:bg-zinc-900/50 border-t border-zinc-200 dark:border-zinc-800 flex items-center justify-end gap-2.5 shrink-0">

@@ -222,9 +222,9 @@ function getAuditLogs({ limit = 50, offset = 0, action = null, ip = null, search
   }
 
   if (search && search.trim()) {
-    query += ' AND (target_resource LIKE ? OR payload LIKE ? OR user LIKE ?)';
+    query += ' AND (action LIKE ? OR target_resource LIKE ? OR payload LIKE ? OR user LIKE ?)';
     const s = `%${search.trim()}%`;
-    params.push(s, s, s);
+    params.push(s, s, s, s);
   }
 
   // Count total matching

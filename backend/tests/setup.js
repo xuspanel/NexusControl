@@ -43,6 +43,10 @@ beforeAll(() => {
   if (db && typeof db.initDb === 'function') {
     db.initDb(inMemoryDb);
   }
+  const wireguardEngine = require('../wireguardEngine');
+  if (wireguardEngine && typeof wireguardEngine.initDb === 'function') {
+    wireguardEngine.initDb(inMemoryDb);
+  }
 });
 
 afterAll(() => {

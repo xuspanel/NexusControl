@@ -128,6 +128,21 @@ export default function CommandPalette({
         }
       },
       {
+        id: 'manage_vpn',
+        module: 'network',
+        type: 'action',
+        category: 'Quick Actions',
+        label: 'Manage Zero Trust VPN (WireGuard)',
+        description: 'View active mesh peers, provision mobile QR profiles & tunnel status',
+        icon: ShieldCheck,
+        shortcut: 'Alt + 9',
+        roles: ['superadmin'],
+        action: () => {
+          onSelectTab('network');
+          onExecuteAction?.('open_wireguard');
+        }
+      },
+      {
         id: 'toggle_theme',
         module: null,
         type: 'action',

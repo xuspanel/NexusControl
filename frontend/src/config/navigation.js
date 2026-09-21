@@ -6,7 +6,8 @@ import {
   Globe,
   ShieldCheck,
   Archive,
-  Users
+  Users,
+  Shield
 } from 'lucide-react';
 
 /**
@@ -93,6 +94,16 @@ export const NAV_ITEMS = [
     shortcut: '8',
     primaryMobile: false,
     roles: ['superadmin']
+  },
+  {
+    id: 'network',
+    label: 'Zero Trust VPN',
+    description: 'WireGuard encrypted mesh tunnel, peer provisioning & QR mobile onboarding',
+    icon: 'Shield',
+    iconComponent: Shield,
+    shortcut: '9',
+    primaryMobile: false,
+    roles: ['superadmin']
   }
 ];
 
@@ -102,8 +113,8 @@ export const NAV_SHORTCUTS = NAV_ITEMS.reduce((acc, item) => {
 }, {});
 
 export function getNavItem(id) {
-  // Support aliases: 'telemetry' -> 'overview', 'domains' -> 'vhosts'
-  const normalized = id === 'telemetry' ? 'overview' : id === 'domains' ? 'vhosts' : id;
+  // Support aliases: 'telemetry' -> 'overview', 'domains' -> 'vhosts', 'vpn' -> 'network', 'wireguard' -> 'network'
+  const normalized = id === 'telemetry' ? 'overview' : id === 'domains' ? 'vhosts' : (id === 'vpn' || id === 'wireguard') ? 'network' : id;
   return NAV_ITEMS.find(item => item.id === normalized) || NAV_ITEMS[0];
 }
 

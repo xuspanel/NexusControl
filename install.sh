@@ -111,7 +111,9 @@ if [ "${OS_FAMILY}" = "debian" ]; then
     tar \
     gzip \
     procps \
-    zstd
+    zstd \
+    wireguard \
+    wireguard-tools
 elif [ "${OS_FAMILY}" = "rhel" ]; then
   PKG_MGR="dnf"
   if ! command -v dnf >/dev/null 2>&1; then
@@ -128,7 +130,8 @@ elif [ "${OS_FAMILY}" = "rhel" ]; then
     tar \
     gzip \
     procps-ng \
-    zstd
+    zstd \
+    wireguard-tools
 fi
 
 log_success "Compilation toolchains successfully installed."

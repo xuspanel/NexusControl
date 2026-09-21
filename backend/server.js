@@ -28,6 +28,7 @@ const vhostRouter = require('./vhostRouter');
 const backupRouter = require('./backupRouter');
 const scheduler = require('./scheduler');
 const userRouter = require('./userRouter');
+const wireguardRouter = require('./wireguardRouter');
 
 // Ensure system storage directories exist on boot
 trash.initTrash().then(() => console.log('[BOOT] Trash directory initialized at /opt/NexusControl/.trash')).catch(err => console.error('[BOOT ERROR] Trash init:', err));
@@ -403,6 +404,9 @@ app.use('/api/backups', auth.authMiddleware, auth.requireRole(['superadmin', 'op
 
 // Protected Tamper-Evident Audit Log Endpoints (Superadmin, Operator, Viewer, Custom with audit module)
 app.use('/api/audit', auth.authMiddleware, auth.requireRole(['superadmin', 'operator', 'viewer'], 'audit'), auditRouter);
+
+// Protected Flagship Zero Trust Network (WireGuard) Endpoints (Superadmin only)
+app.use('/api/wireguard', auth.authMiddleware, auth.requireRole(['superadmin'], 'network'), wireguardRouter);
 
 if (process.env.NODE_ENV !== 'test') {
   dockerEngine.startBackgroundSampling(3500);

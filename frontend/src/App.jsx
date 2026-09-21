@@ -18,6 +18,7 @@ import DockerView from './components/docker/DockerView';
 import VHostView from './components/vhost/VHostView';
 import BackupsView from './components/backups/BackupsView';
 import UsersView from './components/users/UsersView';
+import WireGuardView from './components/network/WireGuardView';
 import { AuthProvider } from './context/AuthContext';
 
 // Adaptive Tri-Mode Navigation Components
@@ -103,6 +104,11 @@ export default function App() {
       case 'create_backup':
       case 'view_backups':
         setActiveTab('backups');
+        break;
+      case 'open_wireguard':
+      case 'manage_vpn':
+      case 'open_network':
+        setActiveTab('network');
         break;
       default:
         break;
@@ -266,6 +272,10 @@ export default function App() {
         ) : activeTab === 'users' ? (
           <main className="max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-4">
             <UsersView token={token} onShowToast={showToast} />
+          </main>
+        ) : activeTab === 'network' ? (
+          <main className="max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-4">
+            <WireGuardView token={token} onShowToast={showToast} />
           </main>
         ) : (
           <main className="max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-4">

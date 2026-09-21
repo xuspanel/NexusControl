@@ -44,12 +44,12 @@ export function useTelemetry() {
   }, [token]);
 
   // Multi-Step Authentication Pipeline
-  const loginStep1 = async (password) => {
+  const loginStep1 = async (password, username = 'admin') => {
     try {
       const res = await fetch('/api/auth/step1', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password })
+        body: JSON.stringify({ username: username || 'admin', password })
       });
       const data = await res.json();
       if (res.ok && data.success) {

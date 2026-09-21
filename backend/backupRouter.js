@@ -44,7 +44,7 @@ router.post('/manual', async (req, res) => {
     // Cryptographic Audit Ledger Hook
     auditLogger.logEvent({
       action: 'BACKUP_CREATE_MANUAL',
-      user: 'root',
+      user: req.user?.username || 'root',
       ip: req.clientIp || req.ip,
       userAgent: req.headers['user-agent'],
       targetResource: backup.filename,
@@ -80,7 +80,7 @@ router.post('/:filename/restore', async (req, res) => {
     // Cryptographic Audit Ledger Hook
     auditLogger.logEvent({
       action: 'BACKUP_RESTORE',
-      user: 'root',
+      user: req.user?.username || 'root',
       ip: req.clientIp || req.ip,
       userAgent: req.headers['user-agent'],
       targetResource: filename,
@@ -128,7 +128,7 @@ router.delete('/:filename', (req, res) => {
     // Cryptographic Audit Ledger Hook
     auditLogger.logEvent({
       action: 'BACKUP_DELETE',
-      user: 'root',
+      user: req.user?.username || 'root',
       ip: req.clientIp || req.ip,
       userAgent: req.headers['user-agent'],
       targetResource: filename,
@@ -166,7 +166,7 @@ router.post('/jobs', (req, res) => {
 
     auditLogger.logEvent({
       action: 'BACKUP_JOB_CREATE',
-      user: 'root',
+      user: req.user?.username || 'root',
       ip: req.clientIp || req.ip,
       userAgent: req.headers['user-agent'],
       targetResource: job.id,
@@ -196,7 +196,7 @@ router.delete('/jobs/:id', (req, res) => {
 
     auditLogger.logEvent({
       action: 'BACKUP_JOB_DELETE',
-      user: 'root',
+      user: req.user?.username || 'root',
       ip: req.clientIp || req.ip,
       userAgent: req.headers['user-agent'],
       targetResource: id,
@@ -286,7 +286,7 @@ router.post('/s3', (req, res) => {
 
     auditLogger.logEvent({
       action: 'BACKUP_S3_CONFIG_UPDATE',
-      user: 'root',
+      user: req.user?.username || 'root',
       ip: req.clientIp || req.ip,
       userAgent: req.headers['user-agent'],
       targetResource: bucket,
@@ -350,7 +350,7 @@ router.post('/gdrive', (req, res) => {
 
     auditLogger.logEvent({
       action: 'BACKUP_GDRIVE_CONFIG_UPDATE',
-      user: 'root',
+      user: req.user?.username || 'root',
       ip: req.clientIp || req.ip,
       userAgent: req.headers['user-agent'],
       targetResource: config.folderId || 'root',

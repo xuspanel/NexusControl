@@ -59,12 +59,23 @@ function setupTerminalWebSocket(server, auth, ipWhitelist) {
         }
       }
 
-      if (!token || !auth.verifyToken(token)) {
+      const user = auth.verifyToken(token);
+      if (!token || !user) {
         console.warn(`[TERMINAL WS UNAUTHORIZED] Missing or invalid session token from IP ${clientIp}`);
         socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
         socket.destroy();
         return;
       }
+
+      // 3. Strict RBAC Gate: Only superadmin role can access interactive root Terminal shell
+      if (user.role !== 'superadmin') {
+        console.warn(`[TERMINAL WS FORBIDDEN] User '${user.username}' (role: ${user.role}) denied root Terminal access from IP ${clientIp}`);
+        socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+        socket.destroy();
+        return;
+      }
+
+      req.user = user;
 
       // Upgrade to WebSocket
       wss.handleUpgrade(req, socket, head, (ws) => {
@@ -100,7 +111,7 @@ function setupTerminalWebSocket(server, auth, ipWhitelist) {
     const clientIp = forwarded ? forwarded.split(',')[0].trim() : (req.headers['x-real-ip'] || req.socket.remoteAddress || '127.0.0.1');
     auditLogger.logEvent({
       action: 'TERMINAL_SESSION_CONNECT',
-      user: 'root',
+      user: req.user?.username || 'root',
       ip: clientIp,
       userAgent: req.headers['user-agent'] || 'WebSocket',
       targetResource: session.id,

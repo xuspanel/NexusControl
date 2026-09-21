@@ -17,6 +17,8 @@ import AuditLogView from './components/audit/AuditLogView';
 import DockerView from './components/docker/DockerView';
 import VHostView from './components/vhost/VHostView';
 import BackupsView from './components/backups/BackupsView';
+import UsersView from './components/users/UsersView';
+import { AuthProvider } from './context/AuthContext';
 
 // Adaptive Tri-Mode Navigation Components
 import SidebarNav from './components/nav/SidebarNav';
@@ -158,7 +160,8 @@ export default function App() {
   }
 
   return (
-    <div className="h-[100dvh] flex flex-col bg-zinc-50 dark:bg-[#09090b] text-zinc-900 dark:text-zinc-100 overflow-hidden selection:bg-emerald-500/20 selection:text-emerald-500 dark:selection:text-emerald-400 transition-colors">
+    <AuthProvider token={token} onLogout={logout}>
+      <div className="h-[100dvh] flex flex-col bg-zinc-50 dark:bg-[#09090b] text-zinc-900 dark:text-zinc-100 overflow-hidden selection:bg-emerald-500/20 selection:text-emerald-500 dark:selection:text-emerald-400 transition-colors">
       {/* 1. Desktop & Tablet Adaptive Sidebar (Hidden on mobile) */}
       <SidebarNav
         activeTab={activeTab}
@@ -260,6 +263,10 @@ export default function App() {
           <main className="max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-4">
             <BackupsView token={token} onShowToast={showToast} />
           </main>
+        ) : activeTab === 'users' ? (
+          <main className="max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-4">
+            <UsersView token={token} onShowToast={showToast} />
+          </main>
         ) : (
           <main className="max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-4">
             <AuditLogView token={token} onShowToast={showToast} />
@@ -295,5 +302,6 @@ export default function App() {
       {/* 6. Floating Feedback Toast */}
       <ToastNotification toast={toast} onClose={() => setToast(null)} />
     </div>
+  </AuthProvider>
   );
 }

@@ -14,7 +14,8 @@ import {
   Terminal,
   Radio
 } from 'lucide-react';
-import { NAV_ITEMS } from '../../config/navigation';
+import { getNavItemsForRole } from '../../config/navigation';
+import { useAuth } from '../../context/AuthContext';
 import ThemeToggle from '../ThemeToggle';
 import OsBadge from '../OsBadge';
 
@@ -28,11 +29,13 @@ export default function MobileNav({
   onLogout
 }) {
   const [isMoreOpen, setIsMoreOpen] = useState(false);
+  const { role } = useAuth();
 
-  // 4 Primary mobile items
-  const primaryItems = NAV_ITEMS.filter(item => item.primaryMobile);
+  const allowedItems = getNavItemsForRole(role);
+  // Primary mobile items
+  const primaryItems = allowedItems.filter(item => item.primaryMobile);
   // Secondary items
-  const secondaryItems = NAV_ITEMS.filter(item => !item.primaryMobile);
+  const secondaryItems = allowedItems.filter(item => !item.primaryMobile);
 
   const cpuPercent = telemetry?.cpu?.percent ?? 0;
   const memPercent = telemetry?.memory?.percent ?? 0;

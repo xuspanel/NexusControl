@@ -93,11 +93,13 @@ function logEvent({
     const payloadStr = typeof payload === 'string' ? payload : JSON.stringify(payload);
     const targetStr = typeof targetResource === 'string' ? targetResource : JSON.stringify(targetResource);
 
+    const resolvedUser = (typeof user === 'object' && user !== null) ? (user.username || 'unknown') : String(user || 'root');
+
     const eventData = {
       id,
       timestamp,
       action: String(action),
-      user: String(user),
+      user: resolvedUser,
       ip: String(ip),
       user_agent: String(userAgent),
       target_resource: targetStr,
@@ -122,6 +124,7 @@ function logEvent({
     return {
       id,
       action: eventData.action,
+      user: eventData.user,
       prevHash,
       eventHash,
       timestamp

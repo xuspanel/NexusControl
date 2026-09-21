@@ -1,12 +1,18 @@
 const crypto = require('node:crypto');
 const nodemailer = require('nodemailer');
 const { verifySync } = require('otplib');
+const jwt = require('jsonwebtoken');
+const bcrypt = require('bcrypt');
+const db = require('./db');
 
-const activeSessions = new Map(); // token -> { createdAt, clientIp }
-const challenges = new Map();     // tempToken -> { step, clientIp, expiresAt, emailOtp, emailOtpExpiresAt }
+const JWT_SECRET = process.env.JWT_SECRET || process.env.SESSION_SECRET || 'nexuscontrol-jwt-secret-key-32-chars-min';
+const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '24h';
+
+const challenges = new Map();     // tempToken -> { step, userId, username, role, clientIp, expiresAt, emailOtp, emailOtpExpiresAt }
 const verifiedIps = new Set();    // Set of recognized IPs that have completed email verification
+const revokedTokens = new Set();  // In-memory blacklist for revoked JWTs
 
-// Periodically clean up expired challenges and stale sessions
+// Periodically clean up expired challenges
 setInterval(() => {
   const now = Date.now();
   for (const [t, c] of challenges.entries()) {
@@ -51,9 +57,8 @@ async function sendEmailOtp(toEmail, code, clientIp) {
     return { success: true };
   } catch (err) {
     console.error(`[AUTH ERROR] Failed to dispatch verification email to ${toEmail} for IP ${clientIp}:`, err.message);
-    console.error(err.stack);
 
-    // CRITICAL Fallback: Print OTP directly to terminal / systemd journal so admin is never locked out
+    // Fallback: Print OTP directly to terminal / journal so admin is not locked out
     console.log(`\n================================================================`);
     console.log(`[CRITICAL AUTH FALLBACK] EMAIL DISPATCH FAILED`);
     console.log(`Client IP        : ${clientIp}`);
@@ -67,71 +72,158 @@ async function sendEmailOtp(toEmail, code, clientIp) {
   }
 }
 
-function generateToken(clientIp) {
-  const token = crypto.randomBytes(32).toString('hex');
-  activeSessions.set(token, { createdAt: Date.now(), clientIp });
-  return token;
+/**
+ * Generate a signed JWT token containing user identity and role
+ */
+function generateToken(user) {
+  const payload = {
+    id: user.id,
+    username: user.username,
+    role: user.role
+  };
+  return jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
 }
 
+/**
+ * Verify a JWT token and return decoded payload or null
+ */
 function verifyToken(token) {
-  if (!token) return false;
-  if (process.env.NODE_ENV === 'test' && token === 'test-token') return true;
-  return activeSessions.has(token);
+  if (!token) return null;
+
+  if (revokedTokens.has(token)) {
+    return null;
+  }
+
+  if (process.env.NODE_ENV === 'test' && token === 'test-token') {
+    return {
+      id: 'test-admin',
+      username: 'root',
+      role: 'superadmin'
+    };
+  }
+
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    return decoded;
+  } catch {
+    return null;
+  }
 }
 
 function revokeToken(token) {
-  if (token) activeSessions.delete(token);
+  if (token) revokedTokens.add(token);
 }
 
-// Step 1: Master Password Handshake
-function handleStep1Password(password, clientIp) {
-  const masterPassword = process.env.ADMIN_PASSWORD || 'nexus2026!';
-  if (password !== masterPassword) {
+/**
+ * Step 1: Username & Password Verification
+ * Supports both { username, password } and legacy { password } (defaulting to 'admin').
+ */
+function handleStep1Password(password, clientIp, username = 'admin') {
+  const targetUsername = (username || 'admin').trim().toLowerCase();
+  const user = db.getUserByUsername(targetUsername);
+
+  if (!user) {
     return { success: false, error: 'Invalid master password.' };
   }
 
-  const tempToken = crypto.randomBytes(24).toString('hex');
-  challenges.set(tempToken, {
-    step: '2FA',
-    clientIp,
-    expiresAt: Date.now() + 300000 // 5 minutes
-  });
+  let passwordMatches = false;
+  try {
+    passwordMatches = bcrypt.compareSync(password, user.password_hash);
+  } catch (err) {
+    console.error('[AUTH BCRYPT ERROR]', err);
+  }
+
+  // Backwards-compatibility fallback if environment password was updated directly in .env
+  if (!passwordMatches && targetUsername === 'admin' && process.env.ADMIN_PASSWORD && password === process.env.ADMIN_PASSWORD) {
+    passwordMatches = true;
+    db.updateUserPassword(user.id, password);
+  }
+
+  if (!passwordMatches) {
+    return { success: false, error: 'Invalid master password.' };
+  }
+
+  // Check if TOTP is configured for this user or required globally
+  const hasTotp = Boolean(user.totp_secret) || (process.env.TOTP_ENFORCED === 'true');
+
+  if (hasTotp) {
+    const tempToken = crypto.randomBytes(24).toString('hex');
+    challenges.set(tempToken, {
+      step: '2FA',
+      userId: user.id,
+      username: user.username,
+      role: user.role,
+      clientIp,
+      expiresAt: Date.now() + 300000 // 5 minutes
+    });
+
+    return {
+      success: true,
+      step: '2FA_REQUIRED',
+      tempToken,
+      username: user.username
+    };
+  }
+
+  // No TOTP required -> Complete authentication immediately
+  db.updateUserLastLogin(user.id);
+  const sessionToken = generateToken(user);
 
   return {
     success: true,
-    step: '2FA_REQUIRED',
-    tempToken
+    step: 'COMPLETE',
+    token: sessionToken,
+    user: {
+      id: user.id,
+      username: user.username,
+      role: user.role
+    }
   };
 }
 
-// Step 2: 2FA TOTP Verification
+/**
+ * Step 2: 2FA TOTP Verification
+ */
 async function handleStep2Totp(tempToken, totpCode, clientIp) {
   const challenge = challenges.get(tempToken);
   if (!challenge || challenge.step !== '2FA' || challenge.expiresAt < Date.now()) {
     return { success: false, error: 'Authentication challenge expired. Please restart login.' };
   }
 
-  const secret = process.env.TOTP_SECRET;
+  const user = db.getUserById(challenge.userId);
+  if (!user) {
+    return { success: false, error: 'User no longer exists.' };
+  }
+
+  const secret = user.totp_secret || process.env.TOTP_SECRET;
   if (!secret) {
-    return { success: false, error: 'TOTP_SECRET is not configured on server. Run setup-2fa.js.' };
+    return { success: false, error: '2FA TOTP secret is not configured for this user.' };
   }
 
   const cleanCode = (totpCode || '').toString().trim();
   const verifyResult = verifySync({ token: cleanCode, secret });
-  if (!verifyResult || !verifyResult.valid) {
+  const isValid = verifyResult === true || (verifyResult && verifyResult.valid === true);
+  if (!isValid) {
     return { success: false, error: 'Invalid 2FA authentication code.' };
   }
 
   const adminEmail = process.env.ADMIN_EMAIL || 'admin@xus.me';
 
-  // Check if this is a known verified IP/session
-  if (verifiedIps.has(clientIp)) {
+  // Check if IP has completed email verification, or if email OTP is not enforced
+  const emailEnforced = process.env.EMAIL_OTP_ENFORCED !== 'false';
+  if (verifiedIps.has(clientIp) || !emailEnforced) {
     challenges.delete(tempToken);
-    const sessionToken = generateToken(clientIp);
+    db.updateUserLastLogin(user.id);
+    const sessionToken = generateToken(user);
     return {
       success: true,
       step: 'COMPLETE',
-      token: sessionToken
+      token: sessionToken,
+      user: {
+        id: user.id,
+        username: user.username,
+        role: user.role
+      }
     };
   }
 
@@ -148,7 +240,7 @@ async function handleStep2Totp(tempToken, totpCode, clientIp) {
     return {
       success: false,
       status: 500,
-      error: 'Failed to dispatch email. Check server logs.',
+      error: 'Failed to dispatch verification email. Check server logs.',
       tempToken,
       step: 'EMAIL_OTP_REQUIRED',
       maskedEmail: maskEmail(adminEmail)
@@ -163,7 +255,9 @@ async function handleStep2Totp(tempToken, totpCode, clientIp) {
   };
 }
 
-// Step 3: Email OTP Verification
+/**
+ * Step 3: Email OTP Verification
+ */
 function handleStep3EmailOtp(tempToken, code, clientIp) {
   const challenge = challenges.get(tempToken);
   if (!challenge || challenge.step !== 'EMAIL_OTP' || challenge.emailOtpExpiresAt < Date.now()) {
@@ -175,24 +269,43 @@ function handleStep3EmailOtp(tempToken, code, clientIp) {
     return { success: false, error: 'Invalid 6-digit email verification code.' };
   }
 
-  // Success! Whitelist IP for this session, purge challenge, issue bearer token
+  const user = db.getUserById(challenge.userId);
+  if (!user) {
+    return { success: false, error: 'User no longer exists.' };
+  }
+
   verifiedIps.add(clientIp);
   challenges.delete(tempToken);
+  db.updateUserLastLogin(user.id);
 
-  const sessionToken = generateToken(clientIp);
+  const sessionToken = generateToken(user);
   return {
     success: true,
     step: 'COMPLETE',
-    token: sessionToken
+    token: sessionToken,
+    user: {
+      id: user.id,
+      username: user.username,
+      role: user.role
+    }
   };
 }
 
-// Auth Middleware for protected endpoints
+/**
+ * Auth Middleware for protected endpoints
+ * Extracts Bearer token, cookie nx_token, or ?token query param
+ */
 function authMiddleware(req, res, next) {
-  // Inject mock test user context in test environment without manual multi-step login
+  // Test environment mock context
   if (process.env.NODE_ENV === 'test' && (req.headers['authorization'] === 'Bearer test-token' || req.headers['x-test-auth'] === 'true')) {
     req.authenticated = true;
-    req.user = req.headers['x-test-user'] || 'root';
+    const testRole = req.headers['x-test-role'] || 'superadmin';
+    const testUsername = req.headers['x-test-user'] || 'root';
+    req.user = {
+      id: 'test-admin-id',
+      username: testUsername,
+      role: testRole
+    };
     return next();
   }
 
@@ -217,12 +330,37 @@ function authMiddleware(req, res, next) {
     token = req.query.token;
   }
 
-  if (verifyToken(token)) {
+  const decoded = verifyToken(token);
+  if (decoded) {
     req.authenticated = true;
+    req.user = decoded;
     return next();
   }
 
   return res.status(401).json({ error: 'Unauthorized: Invalid or expired session token.' });
+}
+
+/**
+ * Role-Based Access Control Middleware Factory
+ * @param {string[]} allowedRoles Array of roles permitted (e.g. ['superadmin'], ['superadmin', 'operator'])
+ */
+function requireRole(allowedRoles = []) {
+  return (req, res, next) => {
+    if (!req.authenticated || !req.user) {
+      return res.status(401).json({ error: 'Unauthorized: Authentication required.' });
+    }
+
+    const userRole = req.user.role;
+    if (!userRole || !allowedRoles.includes(userRole)) {
+      return res.status(403).json({
+        error: 'Forbidden: Insufficient privileges for this resource.',
+        requiredRoles: allowedRoles,
+        currentRole: userRole || 'anonymous'
+      });
+    }
+
+    next();
+  };
 }
 
 module.exports = {
@@ -232,5 +370,7 @@ module.exports = {
   verifyToken,
   generateToken,
   revokeToken,
-  authMiddleware
+  authMiddleware,
+  requireRole,
+  JWT_SECRET
 };

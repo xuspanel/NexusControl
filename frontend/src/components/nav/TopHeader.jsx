@@ -9,6 +9,7 @@ import {
   Menu
 } from 'lucide-react';
 import { getNavItem } from '../../config/navigation';
+import { useAuth } from '../../context/AuthContext';
 import ThemeToggle from '../ThemeToggle';
 
 export default function TopHeader({
@@ -18,6 +19,7 @@ export default function TopHeader({
   connected,
   onOpenCommandPalette
 }) {
+  const { role, username } = useAuth();
   const currentNav = getNavItem(activeTab);
   const IconComponent = currentNav.iconComponent;
 
@@ -111,6 +113,21 @@ export default function TopHeader({
             }`}
           />
           <span>{connected ? 'LIVE 1.5s' : 'POLLING'}</span>
+        </div>
+
+        {/* User Role Badge */}
+        <div
+          className={`hidden xs:inline-flex items-center gap-1 px-2 py-0.8 rounded-lg text-[10px] font-mono uppercase font-semibold border ${
+            role === 'superadmin'
+              ? 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/25'
+              : role === 'operator'
+              ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/25'
+              : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/25'
+          }`}
+          title={`Logged in as ${username} (${role})`}
+        >
+          <span className="w-1.5 h-1.5 rounded-full bg-current" />
+          <span>{role}</span>
         </div>
 
         {/* Dark/Light Theme Toggle */}

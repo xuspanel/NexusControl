@@ -5,11 +5,13 @@ import {
   Boxes,
   Globe,
   ShieldCheck,
-  Archive
+  Archive,
+  Users
 } from 'lucide-react';
 
 /**
  * Centralized Navigation Registry for NexusControl Adaptive Tri-Mode Navigation
+ * With Granular Multi-User Role-Based Access Control (RBAC) Mapping
  */
 export const NAV_ITEMS = [
   {
@@ -19,7 +21,8 @@ export const NAV_ITEMS = [
     icon: 'LayoutDashboard',
     iconComponent: LayoutDashboard,
     shortcut: '1',
-    primaryMobile: true
+    primaryMobile: true,
+    roles: ['superadmin', 'operator', 'viewer']
   },
   {
     id: 'files',
@@ -28,7 +31,8 @@ export const NAV_ITEMS = [
     icon: 'FolderGit2',
     iconComponent: FolderGit2,
     shortcut: '2',
-    primaryMobile: true
+    primaryMobile: true,
+    roles: ['superadmin', 'operator']
   },
   {
     id: 'terminal',
@@ -37,7 +41,8 @@ export const NAV_ITEMS = [
     icon: 'Terminal',
     iconComponent: Terminal,
     shortcut: '3',
-    primaryMobile: true
+    primaryMobile: true,
+    roles: ['superadmin']
   },
   {
     id: 'docker',
@@ -46,7 +51,8 @@ export const NAV_ITEMS = [
     icon: 'Boxes',
     iconComponent: Boxes,
     shortcut: '4',
-    primaryMobile: true
+    primaryMobile: true,
+    roles: ['superadmin', 'operator']
   },
   {
     id: 'vhosts',
@@ -55,7 +61,8 @@ export const NAV_ITEMS = [
     icon: 'Globe',
     iconComponent: Globe,
     shortcut: '5',
-    primaryMobile: false
+    primaryMobile: false,
+    roles: ['superadmin', 'operator']
   },
   {
     id: 'audit',
@@ -64,7 +71,8 @@ export const NAV_ITEMS = [
     icon: 'ShieldCheck',
     iconComponent: ShieldCheck,
     shortcut: '6',
-    primaryMobile: false
+    primaryMobile: false,
+    roles: ['superadmin', 'operator', 'viewer']
   },
   {
     id: 'backups',
@@ -73,7 +81,18 @@ export const NAV_ITEMS = [
     icon: 'Archive',
     iconComponent: Archive,
     shortcut: '7',
-    primaryMobile: false
+    primaryMobile: false,
+    roles: ['superadmin', 'operator']
+  },
+  {
+    id: 'users',
+    label: 'Users & Roles',
+    description: 'Multi-user role-based access control, TOTP 2FA onboarding & team administration',
+    icon: 'Users',
+    iconComponent: Users,
+    shortcut: '8',
+    primaryMobile: false,
+    roles: ['superadmin']
   }
 ];
 
@@ -86,4 +105,9 @@ export function getNavItem(id) {
   // Support aliases: 'telemetry' -> 'overview', 'domains' -> 'vhosts'
   const normalized = id === 'telemetry' ? 'overview' : id === 'domains' ? 'vhosts' : id;
   return NAV_ITEMS.find(item => item.id === normalized) || NAV_ITEMS[0];
+}
+
+export function getNavItemsForRole(role) {
+  const activeRole = role || 'viewer';
+  return NAV_ITEMS.filter(item => !item.roles || item.roles.includes(activeRole));
 }

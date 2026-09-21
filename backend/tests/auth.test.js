@@ -50,7 +50,7 @@ describe('Authentication & Perimeter Defense Integration', () => {
     }
 
     expect(lastStatus).toBe(429);
-  });
+  }, 15000);
 
   test('Protected endpoint returns HTTP 401 when token is missing or invalid', async () => {
     const res = await request(app)

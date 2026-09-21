@@ -12,6 +12,11 @@ process.env.EMAIL_OTP_ENFORCED = 'false';
 // Isolated in-memory SQLite test database instance
 let inMemoryDb = null;
 
+beforeEach(() => {
+  process.env.ALLOWED_IPS = '127.0.0.1,::1,localhost,192.168.1.50';
+  process.env.ADMIN_PASSWORD = 'TestPassword123!';
+});
+
 beforeAll(() => {
   inMemoryDb = new DatabaseSync(':memory:');
   const auditLogger = require('../auditLogger');
@@ -33,6 +38,10 @@ beforeAll(() => {
   const gdriveReplication = require('../gdriveReplication');
   if (gdriveReplication && typeof gdriveReplication.initDb === 'function') {
     gdriveReplication.initDb(inMemoryDb);
+  }
+  const db = require('../db');
+  if (db && typeof db.initDb === 'function') {
+    db.initDb(inMemoryDb);
   }
 });
 

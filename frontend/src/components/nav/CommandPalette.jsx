@@ -18,7 +18,8 @@ import {
   Archive,
   X
 } from 'lucide-react';
-import { NAV_ITEMS } from '../../config/navigation';
+import { getNavItemsForRole } from '../../config/navigation';
+import { useAuth } from '../../context/AuthContext';
 
 export default function CommandPalette({
   isOpen,
@@ -27,108 +28,117 @@ export default function CommandPalette({
   onSelectTab,
   onExecuteAction
 }) {
+  const { role } = useAuth();
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef(null);
   const listRef = useRef(null);
 
   // Quick Action Definitions
-  const quickActions = useMemo(() => [
-    {
-      id: 'open_terminal',
-      type: 'action',
-      category: 'Quick Actions',
-      label: 'Open Root Terminal Session',
-      description: 'Launch an interactive bash pseudo-terminal as root',
-      icon: Terminal,
-      shortcut: 'Alt + 3',
-      action: () => {
-        onSelectTab('terminal');
-        onExecuteAction?.('open_terminal');
+  const quickActions = useMemo(() => {
+    const rawActions = [
+      {
+        id: 'open_terminal',
+        type: 'action',
+        category: 'Quick Actions',
+        label: 'Open Root Terminal Session',
+        description: 'Launch an interactive bash pseudo-terminal as root',
+        icon: Terminal,
+        shortcut: 'Alt + 3',
+        roles: ['superadmin'],
+        action: () => {
+          onSelectTab('terminal');
+          onExecuteAction?.('open_terminal');
+        }
+      },
+      {
+        id: 'upload_file',
+        type: 'action',
+        category: 'Quick Actions',
+        label: 'Upload File to Server',
+        description: 'Open chunked file uploader in Files Manager',
+        icon: Upload,
+        shortcut: 'Alt + 2',
+        roles: ['superadmin', 'operator'],
+        action: () => {
+          onSelectTab('files');
+          onExecuteAction?.('upload_file');
+        }
+      },
+      {
+        id: 'restart_docker',
+        type: 'action',
+        category: 'Quick Actions',
+        label: 'Restart Docker Demo Container',
+        description: 'Send restart signal to nexus-demo-service container',
+        icon: Boxes,
+        shortcut: 'Alt + 4',
+        roles: ['superadmin', 'operator'],
+        action: () => {
+          onSelectTab('docker');
+          onExecuteAction?.('restart_docker');
+        }
+      },
+      {
+        id: 'create_vhost',
+        type: 'action',
+        category: 'Quick Actions',
+        label: 'Create New Virtual Host / Domain',
+        description: 'Open atomic Nginx configuration wizard',
+        icon: Plus,
+        shortcut: 'Alt + 5',
+        roles: ['superadmin', 'operator'],
+        action: () => {
+          onSelectTab('vhosts');
+          onExecuteAction?.('create_vhost');
+        }
+      },
+      {
+        id: 'verify_audit',
+        type: 'action',
+        category: 'Quick Actions',
+        label: 'Verify Audit Log Integrity',
+        description: 'Cryptographically verify SHA-256 hash chain from Genesis to Head',
+        icon: ShieldCheck,
+        shortcut: 'Alt + 6',
+        roles: ['superadmin', 'operator', 'viewer'],
+        action: () => {
+          onSelectTab('audit');
+          onExecuteAction?.('verify_audit');
+        }
+      },
+      {
+        id: 'create_backup',
+        type: 'action',
+        category: 'Quick Actions',
+        label: 'Create System Snapshot (zstd)',
+        description: 'Trigger fast Zstandard compressed backup snapshot in repository',
+        icon: Archive,
+        shortcut: 'Alt + 7',
+        roles: ['superadmin', 'operator'],
+        action: () => {
+          onSelectTab('backups');
+          onExecuteAction?.('create_backup');
+        }
+      },
+      {
+        id: 'toggle_theme',
+        type: 'action',
+        category: 'Quick Actions',
+        label: 'Toggle Dark / Light Theme',
+        description: 'Switch between sleek dark mode and high-contrast light mode',
+        icon: SunMoon,
+        shortcut: '',
+        roles: ['superadmin', 'operator', 'viewer'],
+        action: () => onExecuteAction?.('toggle_theme')
       }
-    },
-    {
-      id: 'upload_file',
-      type: 'action',
-      category: 'Quick Actions',
-      label: 'Upload File to Server',
-      description: 'Open chunked file uploader in Files Manager',
-      icon: Upload,
-      shortcut: 'Alt + 2',
-      action: () => {
-        onSelectTab('files');
-        onExecuteAction?.('upload_file');
-      }
-    },
-    {
-      id: 'restart_docker',
-      type: 'action',
-      category: 'Quick Actions',
-      label: 'Restart Docker Demo Container',
-      description: 'Send restart signal to nexus-demo-service container',
-      icon: Boxes,
-      shortcut: 'Alt + 4',
-      action: () => {
-        onSelectTab('docker');
-        onExecuteAction?.('restart_docker');
-      }
-    },
-    {
-      id: 'create_vhost',
-      type: 'action',
-      category: 'Quick Actions',
-      label: 'Create New Virtual Host / Domain',
-      description: 'Open atomic Nginx configuration wizard',
-      icon: Plus,
-      shortcut: 'Alt + 5',
-      action: () => {
-        onSelectTab('vhosts');
-        onExecuteAction?.('create_vhost');
-      }
-    },
-    {
-      id: 'verify_audit',
-      type: 'action',
-      category: 'Quick Actions',
-      label: 'Verify Audit Log Integrity',
-      description: 'Cryptographically verify SHA-256 hash chain from Genesis to Head',
-      icon: ShieldCheck,
-      shortcut: 'Alt + 6',
-      action: () => {
-        onSelectTab('audit');
-        onExecuteAction?.('verify_audit');
-      }
-    },
-    {
-      id: 'create_backup',
-      type: 'action',
-      category: 'Quick Actions',
-      label: 'Create System Snapshot (zstd)',
-      description: 'Trigger fast Zstandard compressed backup snapshot in repository',
-      icon: Archive,
-      shortcut: 'Alt + 7',
-      action: () => {
-        onSelectTab('backups');
-        onExecuteAction?.('create_backup');
-      }
-    },
-    {
-      id: 'toggle_theme',
-      type: 'action',
-      category: 'Quick Actions',
-      label: 'Toggle Dark / Light Theme',
-      description: 'Switch between sleek dark mode and high-contrast light mode',
-      icon: SunMoon,
-      shortcut: 'T',
-      action: () => {
-        onExecuteAction?.('toggle_theme');
-      }
-    }
-  ], [onSelectTab, onExecuteAction]);
+    ];
 
+    return rawActions.filter(a => !a.roles || a.roles.includes(role || 'viewer'));
+  }, [role, onSelectTab, onExecuteAction]);
   // Combined searchable entries
   const allEntries = useMemo(() => {
-    const navEntries = NAV_ITEMS.map(item => ({
+    const navEntries = getNavItemsForRole(role).map(item => ({
       id: item.id,
       type: 'navigation',
       category: 'Navigation',
@@ -140,7 +150,7 @@ export default function CommandPalette({
     }));
 
     return [...navEntries, ...quickActions];
-  }, [quickActions, onSelectTab]);
+  }, [role, quickActions, onSelectTab]);
 
   // Filter entries based on query
   const filteredEntries = useMemo(() => {

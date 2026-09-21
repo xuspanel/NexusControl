@@ -133,7 +133,7 @@ router.post('/containers/:id/action', async (req, res) => {
 
     auditLogger.logEvent({
       action: auditAction,
-      user: 'root',
+      user: req.user?.username || 'root',
       ip: req.clientIp || '127.0.0.1',
       userAgent: req.headers['user-agent'] || 'NexusControl-Client',
       targetResource: `container:${containerName} (${id.slice(0, 12)})`,
@@ -173,7 +173,7 @@ router.delete('/containers/:id', async (req, res) => {
     // CRITICAL: Cryptographic Audit Logging
     auditLogger.logEvent({
       action: 'DOCKER_DELETE',
-      user: 'root',
+      user: req.user?.username || 'root',
       ip: req.clientIp || '127.0.0.1',
       userAgent: req.headers['user-agent'] || 'NexusControl-Client',
       targetResource: `container:${containerName} (${id.slice(0, 12)})`,

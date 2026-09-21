@@ -27,6 +27,7 @@ const dockerEngine = require('./dockerEngine');
 const vhostRouter = require('./vhostRouter');
 const backupRouter = require('./backupRouter');
 const scheduler = require('./scheduler');
+const userRouter = require('./userRouter');
 
 // Ensure system storage directories exist on boot
 trash.initTrash().then(() => console.log('[BOOT] Trash directory initialized at /opt/NexusControl/.trash')).catch(err => console.error('[BOOT ERROR] Trash init:', err));
@@ -98,18 +99,18 @@ keepaliveTimer.unref?.();
 
 // --- Multi-Step Defense-in-Depth Authentication Pipeline ---
 
-// Step 1: Master Password Verification
+// Step 1: Username & Password Verification (defaults to admin if omitted)
 app.post('/api/auth/step1', authLimiter, (req, res) => {
-  const { password } = req.body || {};
+  const { username = 'admin', password } = req.body || {};
   if (!password) {
     return res.status(400).json({ error: 'Password is required.' });
   }
 
-  const result = auth.handleStep1Password(password, req.clientIp);
+  const result = auth.handleStep1Password(password, req.clientIp, username);
   if (!result.success) {
     auditLogger.logEvent({
       action: 'AUTH_STEP1_FAILED',
-      user: 'root',
+      user: username || 'unknown',
       ip: req.clientIp,
       userAgent: req.headers['user-agent'],
       payload: { reason: result.error }
@@ -118,8 +119,8 @@ app.post('/api/auth/step1', authLimiter, (req, res) => {
   }
 
   auditLogger.logEvent({
-    action: 'AUTH_STEP1_SUCCESS',
-    user: 'root',
+    action: result.step === 'COMPLETE' ? 'AUTH_LOGIN_SUCCESS' : 'AUTH_STEP1_SUCCESS',
+    user: result.user?.username || result.username || username || 'admin',
     ip: req.clientIp,
     userAgent: req.headers['user-agent']
   });
@@ -129,16 +130,16 @@ app.post('/api/auth/step1', authLimiter, (req, res) => {
 
 // Legacy /api/auth/login alias -> redirects to Step 1
 app.post('/api/auth/login', authLimiter, (req, res) => {
-  const { password } = req.body || {};
+  const { username = 'admin', password } = req.body || {};
   if (!password) {
     return res.status(400).json({ error: 'Password is required.' });
   }
 
-  const result = auth.handleStep1Password(password, req.clientIp);
+  const result = auth.handleStep1Password(password, req.clientIp, username);
   if (!result.success) {
     auditLogger.logEvent({
       action: 'AUTH_LOGIN_FAILED',
-      user: 'root',
+      user: username || 'unknown',
       ip: req.clientIp,
       userAgent: req.headers['user-agent'],
       payload: { reason: result.error }
@@ -147,8 +148,8 @@ app.post('/api/auth/login', authLimiter, (req, res) => {
   }
 
   auditLogger.logEvent({
-    action: 'AUTH_STEP1_SUCCESS',
-    user: 'root',
+    action: result.step === 'COMPLETE' ? 'AUTH_LOGIN_SUCCESS' : 'AUTH_STEP1_SUCCESS',
+    user: result.user?.username || result.username || username || 'admin',
     ip: req.clientIp,
     userAgent: req.headers['user-agent']
   });
@@ -181,10 +182,10 @@ app.post('/api/auth/step2-2fa', authLimiter, async (req, res) => {
     });
   }
 
-  if (result.authenticated) {
+  if (result.authenticated || result.step === 'COMPLETE') {
     auditLogger.logEvent({
       action: 'AUTH_LOGIN_SUCCESS',
-      user: 'root',
+      user: result.user?.username || 'admin',
       ip: req.clientIp,
       userAgent: req.headers['user-agent'],
       payload: { method: 'totp' }
@@ -205,7 +206,7 @@ app.post('/api/auth/step3-email-otp', authLimiter, (req, res) => {
   if (!result.success) {
     auditLogger.logEvent({
       action: 'AUTH_EMAIL_OTP_FAILED',
-      user: 'root',
+      user: 'admin',
       ip: req.clientIp,
       userAgent: req.headers['user-agent'],
       payload: { reason: result.error }
@@ -215,7 +216,7 @@ app.post('/api/auth/step3-email-otp', authLimiter, (req, res) => {
 
   auditLogger.logEvent({
     action: 'AUTH_LOGIN_SUCCESS',
-    user: 'root',
+    user: result.user?.username || 'admin',
     ip: req.clientIp,
     userAgent: req.headers['user-agent'],
     payload: { method: 'email_otp' }
@@ -225,7 +226,7 @@ app.post('/api/auth/step3-email-otp', authLimiter, (req, res) => {
 });
 
 app.get('/api/auth/check', auth.authMiddleware, (req, res) => {
-  res.json({ authenticated: true });
+  res.json({ authenticated: true, user: req.user });
 });
 
 app.post('/api/auth/logout', auth.authMiddleware, (req, res) => {
@@ -235,7 +236,7 @@ app.post('/api/auth/logout', auth.authMiddleware, (req, res) => {
   }
   auditLogger.logEvent({
     action: 'AUTH_LOGOUT',
-    user: 'root',
+    user: req.user?.username || 'system',
     ip: req.clientIp,
     userAgent: req.headers['user-agent']
   });
@@ -296,14 +297,14 @@ app.get('/api/system/processes', auth.authMiddleware, async (req, res) => {
   }
 });
 
-app.post('/api/system/processes/signal', auth.authMiddleware, async (req, res) => {
+app.post('/api/system/processes/signal', auth.authMiddleware, auth.requireRole(['superadmin', 'operator']), async (req, res) => {
   try {
     const { pid, signal } = req.body;
     if (pid === undefined) return res.status(400).json({ error: 'PID is required.' });
     const result = await services.dispatchProcessSignal(pid, signal || 'SIGTERM');
     auditLogger.logEvent({
       action: 'PROCESS_SIGNAL',
-      user: 'root',
+      user: req.user?.username || 'system',
       ip: req.clientIp,
       userAgent: req.headers['user-agent'],
       targetResource: `PID:${pid}`,
@@ -333,7 +334,7 @@ app.get('/api/system/services', auth.authMiddleware, async (req, res) => {
   }
 });
 
-app.post('/api/system/services/action', auth.authMiddleware, async (req, res) => {
+app.post('/api/system/services/action', auth.authMiddleware, auth.requireRole(['superadmin', 'operator']), async (req, res) => {
   try {
     if (!osAdapter.isSystemdAvailable()) {
       return res.status(501).json({
@@ -348,7 +349,7 @@ app.post('/api/system/services/action', auth.authMiddleware, async (req, res) =>
     const result = await services.manageService(serviceId, action);
     auditLogger.logEvent({
       action: `SERVICE_${String(action).toUpperCase()}`,
-      user: 'root',
+      user: req.user?.username || 'system',
       ip: req.clientIp,
       userAgent: req.headers['user-agent'],
       targetResource: serviceId,
@@ -382,23 +383,26 @@ app.get('/api/system/logs', auth.authMiddleware, async (req, res) => {
   }
 });
 
-// Protected Files Manager Endpoints
-app.use('/api/files', auth.authMiddleware, filesRouter);
+// Protected User Management Endpoints (Superadmin only)
+app.use('/api/users', auth.authMiddleware, auth.requireRole(['superadmin']), userRouter);
 
-// Protected Terminal Endpoints
-app.use('/api/terminal', auth.authMiddleware, terminalRouter);
+// Protected Terminal Endpoints (Superadmin only)
+app.use('/api/terminal', auth.authMiddleware, auth.requireRole(['superadmin']), terminalRouter);
 
-// Protected Tamper-Evident Audit Log Endpoints
-app.use('/api/audit', auth.authMiddleware, auditRouter);
+// Protected Files Manager Endpoints (Superadmin, Operator)
+app.use('/api/files', auth.authMiddleware, auth.requireRole(['superadmin', 'operator']), filesRouter);
 
-// Protected Enterprise Docker Engine Endpoints
-app.use('/api/docker', auth.authMiddleware, dockerRouter);
+// Protected Enterprise Docker Engine Endpoints (Superadmin, Operator)
+app.use('/api/docker', auth.authMiddleware, auth.requireRole(['superadmin', 'operator']), dockerRouter);
 
-// Protected Enterprise Nginx vHost & Domain Manager Endpoints
-app.use('/api/vhosts', auth.authMiddleware, vhostRouter);
+// Protected Enterprise Nginx vHost & Domain Manager Endpoints (Superadmin, Operator)
+app.use('/api/vhosts', auth.authMiddleware, auth.requireRole(['superadmin', 'operator']), vhostRouter);
 
-// Protected Automated Backup & Snapshot Engine Endpoints
-app.use('/api/backups', auth.authMiddleware, backupRouter);
+// Protected Automated Backup & Snapshot Engine Endpoints (Superadmin, Operator)
+app.use('/api/backups', auth.authMiddleware, auth.requireRole(['superadmin', 'operator']), backupRouter);
+
+// Protected Tamper-Evident Audit Log Endpoints (Superadmin, Operator, Viewer)
+app.use('/api/audit', auth.authMiddleware, auth.requireRole(['superadmin', 'operator', 'viewer']), auditRouter);
 
 if (process.env.NODE_ENV !== 'test') {
   dockerEngine.startBackgroundSampling(3500);

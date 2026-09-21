@@ -9,11 +9,13 @@ import {
   AlertCircle, 
   Server, 
   CheckCircle2,
-  Clock
+  Clock,
+  User
 } from 'lucide-react';
 
 export default function AuthGate({ onStep1, onStep2, onStep3 }) {
   const [step, setStep] = useState(1); // 1: Password, 2: TOTP, 3: Email OTP
+  const [username, setUsername] = useState('admin');
   const [password, setPassword] = useState('');
   const [totpCode, setTotpCode] = useState('');
   const [emailOtp, setEmailOtp] = useState('');
@@ -22,14 +24,14 @@ export default function AuthGate({ onStep1, onStep2, onStep3 }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  // Step 1: Master Password Submission
+  // Step 1: Password & Username Submission
   const handlePasswordSubmit = async (e) => {
     e.preventDefault();
-    if (!password) return;
+    if (!password || !username.trim()) return;
     setLoading(true);
     setError('');
 
-    const res = await onStep1(password);
+    const res = await onStep1(password, username.trim());
     setLoading(false);
 
     if (res.success) {
@@ -145,12 +147,30 @@ export default function AuthGate({ onStep1, onStep2, onStep3 }) {
           </div>
         )}
 
-        {/* STEP 1: Master Password */}
+        {/* STEP 1: Account & Access Key */}
         {step === 1 && (
           <form onSubmit={handlePasswordSubmit} className="space-y-4">
             <div>
               <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400 mb-1.5 uppercase tracking-wider">
-                Step 1: Master Access Key
+                Username
+              </label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-zinc-400 dark:text-zinc-500">
+                  <User className="w-4 h-4" />
+                </div>
+                <input
+                  type="text"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder="admin"
+                  className="w-full bg-zinc-50 dark:bg-[#09090b] border border-zinc-300 dark:border-zinc-800 rounded-lg pl-9 pr-4 py-2.5 text-sm text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-600 focus:outline-none focus:border-emerald-500/60 focus:ring-1 focus:ring-emerald-500/50 font-mono"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400 mb-1.5 uppercase tracking-wider">
+                Password
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-zinc-400 dark:text-zinc-500">
@@ -160,7 +180,7 @@ export default function AuthGate({ onStep1, onStep2, onStep3 }) {
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Enter root master password"
+                  placeholder="Enter password"
                   autoFocus
                   className="w-full bg-zinc-50 dark:bg-[#09090b] border border-zinc-300 dark:border-zinc-800 rounded-lg pl-9 pr-4 py-2.5 text-sm text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-600 focus:outline-none focus:border-emerald-500/60 focus:ring-1 focus:ring-emerald-500/50 font-mono"
                 />

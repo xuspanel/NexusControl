@@ -141,7 +141,7 @@ router.post('/', async (req, res) => {
     // Tamper-Evident Audit Logging
     auditLogger.logEvent({
       action: 'VHOST_CREATE',
-      user: 'root',
+      user: req.user?.username || 'root',
       ip: req.clientIp || '127.0.0.1',
       userAgent: req.headers['user-agent'] || 'NexusControl-Client',
       targetResource: `vhost:${domain}`,
@@ -160,7 +160,7 @@ router.post('/', async (req, res) => {
         sslResult = await vhostEngine.issueSslCertificate(domain, email);
         auditLogger.logEvent({
           action: 'SSL_ISSUE',
-          user: 'root',
+          user: req.user?.username || 'root',
           ip: req.clientIp || '127.0.0.1',
           userAgent: req.headers['user-agent'] || 'NexusControl-Client',
           targetResource: `vhost:${domain}`,
@@ -212,7 +212,7 @@ router.put('/:domain', async (req, res) => {
     // Tamper-Evident Audit Logging
     auditLogger.logEvent({
       action: 'VHOST_UPDATE',
-      user: 'root',
+      user: req.user?.username || 'root',
       ip: req.clientIp || '127.0.0.1',
       userAgent: req.headers['user-agent'] || 'NexusControl-Client',
       targetResource: `vhost:${domain}`,
@@ -243,7 +243,7 @@ router.post('/:domain/toggle', async (req, res) => {
     // Tamper-Evident Audit Logging
     auditLogger.logEvent({
       action: 'VHOST_TOGGLE',
-      user: 'root',
+      user: req.user?.username || 'root',
       ip: req.clientIp || '127.0.0.1',
       userAgent: req.headers['user-agent'] || 'NexusControl-Client',
       targetResource: `vhost:${domain}`,
@@ -269,7 +269,7 @@ router.delete('/:domain', async (req, res) => {
     // Tamper-Evident Audit Logging
     auditLogger.logEvent({
       action: 'VHOST_DELETE',
-      user: 'root',
+      user: req.user?.username || 'root',
       ip: req.clientIp || '127.0.0.1',
       userAgent: req.headers['user-agent'] || 'NexusControl-Client',
       targetResource: `vhost:${domain}`,
@@ -300,7 +300,7 @@ router.post('/:domain/ssl', async (req, res) => {
     // Tamper-Evident Audit Logging
     auditLogger.logEvent({
       action: 'SSL_ISSUE',
-      user: 'root',
+      user: req.user?.username || 'root',
       ip: req.clientIp || '127.0.0.1',
       userAgent: req.headers['user-agent'] || 'NexusControl-Client',
       targetResource: `vhost:${domain}`,

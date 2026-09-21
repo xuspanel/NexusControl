@@ -9,7 +9,8 @@ import {
   LogOut,
   Sparkles
 } from 'lucide-react';
-import { NAV_ITEMS } from '../../config/navigation';
+import { getNavItemsForRole } from '../../config/navigation';
+import { useAuth } from '../../context/AuthContext';
 import OsBadge from '../OsBadge';
 
 export default function SidebarNav({
@@ -23,6 +24,8 @@ export default function SidebarNav({
   onOpenCommandPalette,
   onLogout
 }) {
+  const { role, username } = useAuth();
+  const navItems = getNavItemsForRole(role);
   return (
     <aside
       className={`hidden md:flex flex-col fixed top-0 bottom-0 left-0 z-40 bg-white dark:bg-[#121215] border-r border-zinc-200 dark:border-zinc-800/80 transition-all duration-300 ease-in-out select-none ${
@@ -99,7 +102,7 @@ export default function SidebarNav({
           </div>
         )}
 
-        {NAV_ITEMS.map((item) => {
+        {navItems.map((item) => {
           const isActive = activeTab === item.id || (item.id === 'overview' && activeTab === 'telemetry') || (item.id === 'vhosts' && activeTab === 'domains');
           const IconComponent = item.iconComponent;
 
@@ -173,8 +176,11 @@ export default function SidebarNav({
               <div className="flex items-center space-x-2 min-w-0">
                 <OsBadge osId={profile?.osId} osName={profile?.os} className="w-4 h-4 rounded-full shrink-0" />
                 <div className="min-w-0">
-                  <div className="text-[11px] font-semibold text-zinc-800 dark:text-zinc-200 truncate">
-                    root@{profile?.hostname || 'vps'}
+                  <div className="text-[11px] font-semibold text-zinc-800 dark:text-zinc-200 truncate flex items-center gap-1.5">
+                    <span>{username}</span>
+                    <span className="px-1 py-0.1 rounded text-[9px] font-mono uppercase bg-zinc-200 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400">
+                      {role}
+                    </span>
                   </div>
                   <div className="text-[10px] text-zinc-400 font-mono flex items-center gap-1.5">
                     <span className={`w-1.5 h-1.5 rounded-full ${connected ? 'bg-emerald-500 animate-pulse-fast' : 'bg-amber-500'}`} />

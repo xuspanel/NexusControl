@@ -67,7 +67,7 @@ const handleSaveFile = async (req, res) => {
     const data = await files.writeFileContent(filePath, content);
     auditLogger.logEvent({
       action: 'FILE_WRITE',
-      user: 'root',
+      user: req.user?.username || 'root',
       ip: req.clientIp || req.ip,
       userAgent: req.headers['user-agent'],
       targetResource: filePath,
@@ -157,7 +157,7 @@ router.post('/chmod', async (req, res) => {
     const data = await files.chmodItem(targetPath, mode, !!recursive);
     auditLogger.logEvent({
       action: 'FILE_CHMOD',
-      user: 'root',
+      user: req.user?.username || 'root',
       ip: req.clientIp || req.ip,
       userAgent: req.headers['user-agent'],
       targetResource: targetPath,
@@ -234,7 +234,7 @@ router.post('/trash', async (req, res) => {
     const data = await trash.moveToTrash(paths);
     auditLogger.logEvent({
       action: 'FILE_TRASH',
-      user: 'root',
+      user: req.user?.username || 'root',
       ip: req.clientIp || req.ip,
       userAgent: req.headers['user-agent'],
       targetResource: paths.join(', '),
@@ -260,7 +260,7 @@ router.delete('/', async (req, res) => {
     const data = await files.deletePermanent(paths);
     auditLogger.logEvent({
       action: 'FILE_DELETE_PERMANENT',
-      user: 'root',
+      user: req.user?.username || 'root',
       ip: req.clientIp || req.ip,
       userAgent: req.headers['user-agent'],
       targetResource: paths.join(', '),
@@ -285,7 +285,7 @@ const handleDelete = async (req, res) => {
       const data = await files.deletePermanent(paths);
       auditLogger.logEvent({
         action: 'FILE_DELETE_PERMANENT',
-        user: 'root',
+        user: req.user?.username || 'root',
         ip: req.clientIp || req.ip,
         userAgent: req.headers['user-agent'],
         targetResource: paths.join(', '),
@@ -296,7 +296,7 @@ const handleDelete = async (req, res) => {
       const data = await trash.moveToTrash(paths);
       auditLogger.logEvent({
         action: 'FILE_TRASH',
-        user: 'root',
+        user: req.user?.username || 'root',
         ip: req.clientIp || req.ip,
         userAgent: req.headers['user-agent'],
         targetResource: paths.join(', '),
@@ -383,7 +383,7 @@ router.post('/extract', async (req, res) => {
     const result = await archive.extractArchive(archivePath, finalTargetDir);
     auditLogger.logEvent({
       action: 'ARCHIVE_EXTRACT',
-      user: 'root',
+      user: req.user?.username || 'root',
       ip: req.clientIp || req.ip,
       userAgent: req.headers['user-agent'],
       targetResource: archivePath,

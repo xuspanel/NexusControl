@@ -3,6 +3,8 @@ const path = require('node:path');
 const backupEngine = require('./backupEngine');
 const scheduler = require('./scheduler');
 const auditLogger = require('./auditLogger');
+const dbBackupAdapter = require('./dbBackupAdapter');
+const s3Replication = require('./s3Replication');
 
 const router = express.Router();
 
@@ -234,6 +236,85 @@ router.post('/jobs/:id/run', async (req, res) => {
     res.json({ success: true, backup });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/backups/detect-dbs
+ * Check running MySQL/MariaDB and PostgreSQL instances
+ */
+router.get('/detect-dbs', (req, res) => {
+  try {
+    const databases = dbBackupAdapter.detectDatabases();
+    res.json({ success: true, databases });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/backups/s3
+ * Retrieve current off-site S3 cloud configuration
+ */
+router.get('/s3', (req, res) => {
+  try {
+    const config = s3Replication.getS3Config();
+    res.json({ success: true, config });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/backups/s3
+ * Save / update off-site S3 cloud configuration
+ */
+router.post('/s3', (req, res) => {
+  const { provider, endpoint, region, bucket, accessKey, secretKey, active } = req.body || {};
+
+  try {
+    const config = s3Replication.saveS3Config({
+      provider,
+      endpoint,
+      region,
+      bucket,
+      accessKey,
+      secretKey,
+      active
+    });
+
+    auditLogger.logEvent({
+      action: 'BACKUP_S3_CONFIG_UPDATE',
+      user: 'root',
+      ip: req.clientIp || req.ip,
+      userAgent: req.headers['user-agent'],
+      targetResource: bucket,
+      payload: {
+        provider,
+        region,
+        bucket,
+        active: Boolean(active)
+      }
+    });
+
+    res.json({ success: true, config });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/backups/s3/test
+ * Test credentials and bucket connectivity
+ */
+router.post('/s3/test', async (req, res) => {
+  const customConfig = req.body && req.body.bucket ? req.body : null;
+
+  try {
+    const result = await s3Replication.testS3Connection(customConfig);
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
   }
 });
 

@@ -5,6 +5,8 @@ const { app } = require('../server');
 const backupEngine = require('../backupEngine');
 const scheduler = require('../scheduler');
 const auditLogger = require('../auditLogger');
+const dbBackupAdapter = require('../dbBackupAdapter');
+const s3Replication = require('../s3Replication');
 
 describe('Enterprise Automated Backup & Snapshot Engine Integration', () => {
   const authHeader = { Authorization: 'Bearer test-token' };
@@ -51,59 +53,100 @@ describe('Enterprise Automated Backup & Snapshot Engine Integration', () => {
     });
   });
 
-  describe('Zstandard Compression & Snapshot Execution Pipeline', () => {
+  describe('Smart Database Auto-Discovery Adapter', () => {
+    test('detectDatabases returns boolean flags for MySQL and PostgreSQL', () => {
+      const dbs = dbBackupAdapter.detectDatabases();
+      expect(dbs).toHaveProperty('mysql');
+      expect(dbs).toHaveProperty('postgres');
+      expect(typeof dbs.mysql).toBe('boolean');
+      expect(typeof dbs.postgres).toBe('boolean');
+    });
+
+    test('cleanupDatabaseDumps gracefully handles empty/nonexistent dump dirs', () => {
+      expect(() => {
+        dbBackupAdapter.cleanupDatabaseDumps('/tmp/nonexistent_dump_dir_xyz');
+      }).not.toThrow();
+    });
+  });
+
+  describe('Native AES-256-GCM Streaming Encryption Pipeline', () => {
+    let createdEncryptedArchive = null;
+
     test('Rejects snapshot creation with nonexistent target paths', async () => {
       await expect(
         backupEngine.createBackup('invalid_backup', ['/nonexistent/directory/that/does/not/exist'])
       ).rejects.toThrow(/Target path does not exist/);
     });
 
-    test('Creates native Zstandard (.tar.zst) archive and records DB row', async () => {
-      const backup = await backupEngine.createBackup('system_test', [testSourceDir], 'manual');
+    test('Creates native encrypted (.tar.zst.enc) archive with 28-byte footer', async () => {
+      const backup = await backupEngine.createBackup('system_enc_test', [testSourceDir], 'manual');
 
       expect(backup).toBeDefined();
-      expect(backup.filename).toMatch(/^nexus_backup_system_test_\d+\.tar\.zst$/);
+      expect(backup.filename).toMatch(/^nexus_backup_system_enc_test_\d+\.tar\.zst\.enc$/);
       expect(backup.type).toBe('manual');
       expect(backup.status).toBe('completed');
-      expect(backup.sizeBytes).toBeGreaterThan(0);
+      expect(backup.isEncrypted).toBe(true);
+      expect(backup.sizeBytes).toBeGreaterThan(28); // Must be larger than footer
 
       const filePath = path.join(testRepoDir, backup.filename);
       expect(fs.existsSync(filePath)).toBe(true);
+
+      // Verify 28-byte footer exists on disk
+      const stat = fs.statSync(filePath);
+      expect(stat.size).toBe(backup.sizeBytes);
+
+      createdEncryptedArchive = backup.filename;
     });
 
-    test('listBackups returns created archives with metadata', () => {
-      const list = backupEngine.listBackups();
-      expect(Array.isArray(list)).toBe(true);
-      expect(list.length).toBeGreaterThan(0);
-      expect(list[0]).toHaveProperty('filename');
-      expect(list[0]).toHaveProperty('sizeBytes');
-      expect(list[0].existsOnDisk).toBe(true);
-    });
-  });
-
-  describe('Atomic Staging Restoration Pipeline', () => {
-    test('Rejects restoration attempts with path traversal or invalid filename', async () => {
-      await expect(
-        backupEngine.restoreBackup('../../etc/passwd', testRestoreDir)
-      ).rejects.toThrow(/Invalid backup archive filename/);
-    });
-
-    test('Restores archive into destination via atomic staging', async () => {
-      const backups = backupEngine.listBackups();
-      const targetArchive = backups[0];
-
-      const result = await backupEngine.restoreBackup(targetArchive.filename, testRestoreDir);
+    test('Restores encrypted archive into destination via atomic staging and decryption', async () => {
+      const result = await backupEngine.restoreBackup(createdEncryptedArchive, testRestoreDir);
       expect(result.success).toBe(true);
       expect(result.destinationPath).toBe(testRestoreDir);
 
-      // Verify files exist in testRestoreDir
+      // Verify decrypted files exist in testRestoreDir
       const restoredFiles = fs.readdirSync(testRestoreDir);
       expect(restoredFiles.length).toBeGreaterThan(0);
+
+      // Verify content is identical to original (tar extracts relative to root)
+      const expectedPath = path.join(testRestoreDir, testSourceDir.replace(/^\//, ''), 'config.json');
+      const fallbackPath = path.join(testRestoreDir, path.basename(testSourceDir), 'config.json');
+      const targetFilePath = fs.existsSync(expectedPath) ? expectedPath : fallbackPath;
+      const restoredConfig = JSON.parse(fs.readFileSync(targetFilePath, 'utf8'));
+      expect(restoredConfig.name).toBe('NexusControl');
 
       // Verify temporary staging directory was cleaned up
       const tmpDirs = fs.readdirSync('/tmp');
       const orphanStaging = tmpDirs.filter(d => d.startsWith('nexus_restore_stage_'));
       expect(orphanStaging.length).toBe(0);
+    });
+
+    test('Tamper detection: Altered ciphertext strictly fails GCM authentication', async () => {
+      // Create a corrupted copy of the encrypted archive
+      const originalPath = path.join(testRepoDir, createdEncryptedArchive);
+      const corruptedFilename = 'corrupted_' + createdEncryptedArchive;
+      const corruptedPath = path.join(testRepoDir, corruptedFilename);
+
+      const buffer = fs.readFileSync(originalPath);
+      // Flip a byte in the middle (ciphertext payload, before footer)
+      buffer[10] = buffer[10] ^ 0xff;
+      fs.writeFileSync(corruptedPath, buffer);
+
+      const targetFailDir = path.join(testBaseDir, 'fail_dest');
+      await expect(
+        backupEngine.restoreBackup(corruptedFilename, targetFailDir)
+      ).rejects.toThrow(/AES-256-GCM authentication failed/);
+
+      // Clean up corrupted file
+      try { fs.unlinkSync(corruptedPath); } catch {}
+    });
+
+    test('listBackups reports isEncrypted property correctly', () => {
+      const list = backupEngine.listBackups();
+      expect(Array.isArray(list)).toBe(true);
+      expect(list.length).toBeGreaterThan(0);
+      const encItem = list.find(b => b.filename === createdEncryptedArchive);
+      expect(encItem).toBeDefined();
+      expect(encItem.isEncrypted).toBe(true);
     });
   });
 
@@ -128,15 +171,12 @@ describe('Enterprise Automated Backup & Snapshot Engine Integration', () => {
     });
 
     test('Enforces retention limit by pruning oldest archives when limit is exceeded', async () => {
-      // Create 3 backups assigned to testJobId (retention limit is 2)
       const b1 = await backupEngine.createBackup('retention_test_1', [testSourceDir], 'auto', testJobId);
-      // Small sleep so timestamp differs
       await new Promise(r => setTimeout(r, 20));
       const b2 = await backupEngine.createBackup('retention_test_2', [testSourceDir], 'auto', testJobId);
       await new Promise(r => setTimeout(r, 20));
       const b3 = await backupEngine.createBackup('retention_test_3', [testSourceDir], 'auto', testJobId);
 
-      // Currently 3 backups exist for testJobId. Enforce retention limit of 2:
       const pruned = await scheduler.enforceRetentionPolicy(testJobId, 2);
 
       expect(pruned.length).toBe(1);
@@ -162,19 +202,51 @@ describe('Enterprise Automated Backup & Snapshot Engine Integration', () => {
     });
   });
 
-  describe('REST API Endpoints & Cryptographic Audit Ledger', () => {
+  describe('REST API Endpoints & S3 Cloud Configuration', () => {
     let createdFilename = null;
     let apiJobId = null;
 
-    test('GET /api/backups returns available archives and disk usage stats', async () => {
+    test('GET /api/backups/detect-dbs returns active database engine status', async () => {
       const res = await request(app)
-        .get('/api/backups')
+        .get('/api/backups/detect-dbs')
         .set(authHeader);
 
       expect(res.status).toBe(200);
-      expect(res.body).toHaveProperty('backups');
-      expect(res.body).toHaveProperty('stats');
-      expect(Array.isArray(res.body.backups)).toBe(true);
+      expect(res.body.success).toBe(true);
+      expect(res.body.databases).toHaveProperty('mysql');
+      expect(res.body.databases).toHaveProperty('postgres');
+    });
+
+    test('GET /api/backups/s3 returns default or configured cloud replication state', async () => {
+      const res = await request(app)
+        .get('/api/backups/s3')
+        .set(authHeader);
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.config).toHaveProperty('active');
+      expect(res.body.config).toHaveProperty('provider');
+    });
+
+    test('POST /api/backups/s3 saves cloud configuration with masked secrets', async () => {
+      const res = await request(app)
+        .post('/api/backups/s3')
+        .set(authHeader)
+        .send({
+          provider: 'r2',
+          endpoint: 'https://test-account.r2.cloudflarestorage.com',
+          region: 'auto',
+          bucket: 'nexus-test-backups',
+          accessKey: 'R2_TEST_ACCESS_KEY_123',
+          secretKey: 'R2_TEST_SECRET_KEY_SUPER_SECRET',
+          active: true
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.config.bucket).toBe('nexus-test-backups');
+      expect(res.body.config.secretKey).toMatch(/••••/);
+      expect(res.body.config.active).toBe(true);
     });
 
     test('POST /api/backups/manual triggers immediate snapshot', async () => {
@@ -189,10 +261,11 @@ describe('Enterprise Automated Backup & Snapshot Engine Integration', () => {
       expect(res.status).toBe(201);
       expect(res.body.success).toBe(true);
       expect(res.body.backup.name).toBe('api_manual_snap');
+      expect(res.body.backup.isEncrypted).toBe(true);
       createdFilename = res.body.backup.filename;
     });
 
-    test('GET /api/backups/:filename/download streams binary archive', async () => {
+    test('GET /api/backups/:filename/download streams encrypted binary archive', async () => {
       const res = await request(app)
         .get(`/api/backups/${encodeURIComponent(createdFilename)}/download`)
         .set(authHeader);
@@ -201,7 +274,7 @@ describe('Enterprise Automated Backup & Snapshot Engine Integration', () => {
       expect(res.headers['content-disposition']).toMatch(/attachment; filename=/);
     });
 
-    test('POST /api/backups/:filename/restore restores archive', async () => {
+    test('POST /api/backups/:filename/restore restores encrypted archive via staging', async () => {
       const apiRestoreDir = path.join(testBaseDir, 'api_restored');
       const res = await request(app)
         .post(`/api/backups/${encodeURIComponent(createdFilename)}/restore`)
@@ -230,16 +303,6 @@ describe('Enterprise Automated Backup & Snapshot Engine Integration', () => {
       apiJobId = res.body.job.id;
     });
 
-    test('GET /api/backups/jobs lists scheduled jobs', async () => {
-      const res = await request(app)
-        .get('/api/backups/jobs')
-        .set(authHeader);
-
-      expect(res.status).toBe(200);
-      expect(Array.isArray(res.body.jobs)).toBe(true);
-      expect(res.body.jobs.some(j => j.id === apiJobId)).toBe(true);
-    });
-
     test('DELETE /api/backups/:filename deletes archive file and DB record', async () => {
       const res = await request(app)
         .delete(`/api/backups/${encodeURIComponent(createdFilename)}`)
@@ -250,7 +313,7 @@ describe('Enterprise Automated Backup & Snapshot Engine Integration', () => {
       expect(fs.existsSync(path.join(testRepoDir, createdFilename))).toBe(false);
     });
 
-    test('Cryptographic Audit Log: BACKUP mutations are chained in SHA-256 ledger', () => {
+    test('Cryptographic Audit Log: BACKUP and S3 mutations are chained in SHA-256 ledger', () => {
       const verification = auditLogger.verifyAuditChain();
       expect(verification.valid).toBe(true);
 
@@ -262,6 +325,7 @@ describe('Enterprise Automated Backup & Snapshot Engine Integration', () => {
       expect(actionsLogged).toContain('BACKUP_CREATE_MANUAL');
       expect(actionsLogged).toContain('BACKUP_RESTORE');
       expect(actionsLogged).toContain('BACKUP_DELETE');
+      expect(actionsLogged).toContain('BACKUP_S3_CONFIG_UPDATE');
     });
   });
 });

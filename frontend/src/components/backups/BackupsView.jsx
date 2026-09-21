@@ -21,7 +21,11 @@ import {
   Layers,
   Sparkles,
   Info,
-  X
+  X,
+  Cloud,
+  Lock,
+  Database,
+  ShieldCheck
 } from 'lucide-react';
 
 function formatBytes(bytes, decimals = 2) {
@@ -66,6 +70,8 @@ export default function BackupsView({ token, onShowToast }) {
   const [backups, setBackups] = useState([]);
   const [jobs, setJobs] = useState([]);
   const [stats, setStats] = useState(null);
+  const [databases, setDatabases] = useState({ mysql: false, postgres: false });
+  const [s3Config, setS3Config] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -73,6 +79,7 @@ export default function BackupsView({ token, onShowToast }) {
   // Modals state
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isJobModalOpen, setIsJobModalOpen] = useState(false);
+  const [isS3ModalOpen, setIsS3ModalOpen] = useState(false);
   const [restoreModalData, setRestoreModalData] = useState(null);
   const [deleteConfirmData, setDeleteConfirmData] = useState(null);
 
@@ -92,24 +99,36 @@ export default function BackupsView({ token, onShowToast }) {
   const [jobRetention, setJobRetention] = useState(7);
   const [submittingJob, setSubmittingJob] = useState(false);
 
+  // S3 Cloud Configuration Form
+  const [s3Form, setS3Form] = useState({
+    provider: 'r2',
+    endpoint: '',
+    region: 'auto',
+    bucket: '',
+    accessKey: '',
+    secretKey: '',
+    active: false
+  });
+  const [testingS3, setTestingS3] = useState(false);
+  const [savingS3, setSavingS3] = useState(false);
+  const [s3TestStatus, setS3TestStatus] = useState(null);
+
   // Restore form
   const [restoreDestPath, setRestoreDestPath] = useState('/');
   const [restoreConfirmationText, setRestoreConfirmationText] = useState('');
   const [restoring, setRestoring] = useState(false);
 
-  // Fetch all backups and jobs
+  // Fetch all backups, jobs, databases, and S3 status
   const fetchData = useCallback(async (showLoading = false) => {
     if (showLoading) setLoading(true);
     setRefreshing(true);
 
     try {
-      const [backupsRes, jobsRes] = await Promise.all([
-        fetch('/api/backups', {
-          headers: { Authorization: `Bearer ${token}` }
-        }),
-        fetch('/api/backups/jobs', {
-          headers: { Authorization: `Bearer ${token}` }
-        })
+      const [backupsRes, jobsRes, dbsRes, s3Res] = await Promise.all([
+        fetch('/api/backups', { headers: { Authorization: `Bearer ${token}` } }),
+        fetch('/api/backups/jobs', { headers: { Authorization: `Bearer ${token}` } }),
+        fetch('/api/backups/detect-dbs', { headers: { Authorization: `Bearer ${token}` } }),
+        fetch('/api/backups/s3', { headers: { Authorization: `Bearer ${token}` } })
       ]);
 
       if (backupsRes.ok) {
@@ -121,6 +140,27 @@ export default function BackupsView({ token, onShowToast }) {
       if (jobsRes.ok) {
         const data = await jobsRes.json();
         setJobs(data.jobs || []);
+      }
+
+      if (dbsRes.ok) {
+        const data = await dbsRes.json();
+        setDatabases(data.databases || { mysql: false, postgres: false });
+      }
+
+      if (s3Res.ok) {
+        const data = await s3Res.json();
+        setS3Config(data.config || null);
+        if (data.config) {
+          setS3Form({
+            provider: data.config.provider || 'r2',
+            endpoint: data.config.endpoint || '',
+            region: data.config.region || 'auto',
+            bucket: data.config.bucket || '',
+            accessKey: data.config.accessKey || '',
+            secretKey: data.config.secretKey || '',
+            active: Boolean(data.config.active)
+          });
+        }
       }
     } catch (err) {
       onShowToast?.('Failed to load backup data: ' + err.message, 'error');
@@ -163,7 +203,7 @@ export default function BackupsView({ token, onShowToast }) {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Backup creation failed');
 
-      onShowToast?.(`Zstandard snapshot '${data.backup.filename}' created successfully!`, 'success');
+      onShowToast?.(`Encrypted snapshot '${data.backup.filename}' created!`, 'success');
       setIsCreateModalOpen(false);
       setSnapName('');
       setSnapPaths(['/var/www']);
@@ -224,6 +264,62 @@ export default function BackupsView({ token, onShowToast }) {
     }
   };
 
+  // Save S3 Cloud Configuration
+  const handleSaveS3Config = async (e) => {
+    e.preventDefault();
+    setSavingS3(true);
+    setS3TestStatus(null);
+
+    try {
+      const res = await fetch('/api/backups/s3', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify(s3Form)
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to save S3 configuration');
+
+      setS3Config(data.config);
+      onShowToast?.('Off-site S3 cloud configuration updated.', 'success');
+      setIsS3ModalOpen(false);
+      fetchData();
+    } catch (err) {
+      onShowToast?.(err.message, 'error');
+    } finally {
+      setSavingS3(false);
+    }
+  };
+
+  // Test S3 Connection
+  const handleTestS3Connection = async () => {
+    setTestingS3(true);
+    setS3TestStatus(null);
+
+    try {
+      const res = await fetch('/api/backups/s3/test', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify(s3Form)
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Connection test failed');
+
+      setS3TestStatus({ success: true, message: data.message || 'Connected successfully!' });
+    } catch (err) {
+      setS3TestStatus({ success: false, message: err.message });
+    } finally {
+      setTestingS3(false);
+    }
+  };
+
   // Delete Backup
   const handleDeleteBackup = async (filename) => {
     try {
@@ -253,9 +349,7 @@ export default function BackupsView({ token, onShowToast }) {
         headers: { Authorization: `Bearer ${token}` }
       });
 
-      if (!res.ok) {
-        throw new Error('Server returned error while downloading archive.');
-      }
+      if (!res.ok) throw new Error('Server returned error while downloading archive.');
 
       const blob = await res.blob();
       const url = window.URL.createObjectURL(blob);
@@ -392,12 +486,13 @@ export default function BackupsView({ token, onShowToast }) {
                 <h1 className="text-lg font-bold text-zinc-900 dark:text-zinc-100 tracking-tight">
                   Automated Backup & Snapshot Engine
                 </h1>
-                <span className="px-2 py-0.5 rounded text-[10px] font-mono font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-                  Zstandard (zstd)
+                <span className="px-2 py-0.5 rounded text-[10px] font-mono font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 flex items-center gap-1">
+                  <Lock className="w-3 h-3" />
+                  AES-256-GCM + zstd
                 </span>
               </div>
               <p className="text-xs text-zinc-500 dark:text-zinc-400 font-mono">
-                Storage: <span className="font-semibold text-zinc-700 dark:text-zinc-300">{stats?.repository || '/opt/nexus_backups'}</span> • Permissions: 0700 (Root-Only)
+                Storage: <span className="font-semibold text-zinc-700 dark:text-zinc-300">{stats?.repository || '/opt/nexus_backups'}</span> • Root-Only (0700)
               </p>
             </div>
           </div>
@@ -405,6 +500,23 @@ export default function BackupsView({ token, onShowToast }) {
 
         {/* Action Controls */}
         <div className="flex items-center gap-2">
+          {/* S3 Cloud Button */}
+          <button
+            onClick={() => setIsS3ModalOpen(true)}
+            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium border transition-colors ${
+              s3Config?.active
+                ? 'bg-blue-500/10 border-blue-500/30 text-blue-600 dark:text-blue-400'
+                : 'bg-zinc-50 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
+            }`}
+            title="Configure Cloud Storage"
+          >
+            <Cloud className="w-4 h-4" />
+            <span>Cloud S3 / R2</span>
+            {s3Config?.active && (
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            )}
+          </button>
+
           <button
             onClick={() => fetchData(false)}
             disabled={refreshing}
@@ -442,26 +554,31 @@ export default function BackupsView({ token, onShowToast }) {
         <div className="bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800/80 rounded-2xl p-4 shadow-xs">
           <div className="flex items-center justify-between">
             <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Storage Consumed</span>
-            <HardDrive className="w-4 h-4 text-blue-500" />
+            <div className="flex items-center gap-1 text-emerald-500">
+              <Lock className="w-3.5 h-3.5" />
+              <HardDrive className="w-4 h-4 text-blue-500" />
+            </div>
           </div>
           <div className="mt-2 flex items-baseline gap-2">
             <span className="text-2xl font-bold font-mono text-zinc-900 dark:text-zinc-100">
               {formatBytes(stats?.totalSizeBytes || 0)}
             </span>
-            <span className="text-xs text-zinc-400">compressed</span>
+            <span className="text-xs text-zinc-400">AES encrypted</span>
           </div>
         </div>
 
         <div className="bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800/80 rounded-2xl p-4 shadow-xs">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Scheduled Profiles</span>
-            <Calendar className="w-4 h-4 text-amber-500" />
+            <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Replication & Profiles</span>
+            <Cloud className="w-4 h-4 text-blue-500" />
           </div>
           <div className="mt-2 flex items-baseline gap-2">
             <span className="text-2xl font-bold font-mono text-zinc-900 dark:text-zinc-100">
               {jobs.length}
             </span>
-            <span className="text-xs text-zinc-400">active jobs</span>
+            <span className="text-xs text-zinc-400">
+              jobs {s3Config?.active ? '• S3 Active' : '• Local only'}
+            </span>
           </div>
         </div>
       </div>
@@ -538,7 +655,7 @@ export default function BackupsView({ token, onShowToast }) {
                 <FileArchive className="w-10 h-10 mx-auto text-zinc-300 dark:text-zinc-700 mb-3" />
                 <h3 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">No backup archives found</h3>
                 <p className="text-xs text-zinc-500 mt-1 max-w-sm mx-auto">
-                  Create your first manual snapshot using ultra-fast Zstandard compression, or configure an automated cron schedule.
+                  Create your first snapshot protected with native AES-256-GCM streaming encryption and Zstandard compression.
                 </p>
                 <button
                   onClick={() => setIsCreateModalOpen(true)}
@@ -555,7 +672,7 @@ export default function BackupsView({ token, onShowToast }) {
                     <tr>
                       <th className="py-3 px-4">Archive & Filename</th>
                       <th className="py-3 px-4">Type</th>
-                      <th className="py-3 px-4">Compressed Size</th>
+                      <th className="py-3 px-4">Size & Security</th>
                       <th className="py-3 px-4">Created Date</th>
                       <th className="py-3 px-4">Target Paths</th>
                       <th className="py-3 px-4 text-right">Actions</th>
@@ -584,8 +701,13 @@ export default function BackupsView({ token, onShowToast }) {
                             {b.type}
                           </span>
                         </td>
-                        <td className="py-3 px-4 font-semibold text-zinc-700 dark:text-zinc-300">
-                          {formatBytes(b.sizeBytes)}
+                        <td className="py-3 px-4">
+                          <div className="flex items-center gap-1.5 font-semibold text-zinc-700 dark:text-zinc-300">
+                            {b.isEncrypted && (
+                              <Lock className="w-3.5 h-3.5 text-emerald-500 shrink-0" title="AES-256-GCM Encrypted" />
+                            )}
+                            <span>{formatBytes(b.sizeBytes)}</span>
+                          </div>
                         </td>
                         <td className="py-3 px-4 text-zinc-500 dark:text-zinc-400">
                           {formatDate(b.createdAt)}
@@ -622,7 +744,7 @@ export default function BackupsView({ token, onShowToast }) {
                             <button
                               onClick={() => handleDownloadArchive(b.filename)}
                               className="p-1.5 rounded-lg border border-blue-500/30 text-blue-600 dark:text-blue-400 hover:bg-blue-500/10 transition-colors"
-                              title="Download Archive"
+                              title="Download Encrypted Archive"
                             >
                               <Download className="w-3.5 h-3.5" />
                             </button>
@@ -760,7 +882,7 @@ export default function BackupsView({ token, onShowToast }) {
               <div className="flex items-center gap-2">
                 <Archive className="w-5 h-5 text-emerald-500" />
                 <h3 className="font-bold text-sm text-zinc-900 dark:text-zinc-100">
-                  Create Zstandard Snapshot
+                  Create Encrypted Zstandard Snapshot
                 </h3>
               </div>
               <button
@@ -772,13 +894,40 @@ export default function BackupsView({ token, onShowToast }) {
             </div>
 
             <form onSubmit={handleCreateSnapshot} className="p-6 space-y-4">
+              {/* Smart Database Detection Badges */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                  Database Auto-Discovery
+                </label>
+                <div className="space-y-1.5">
+                  {databases.postgres && (
+                    <div className="flex items-center gap-2 p-2.5 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-600 dark:text-blue-400 text-xs font-semibold">
+                      <span className="text-base">🐘</span>
+                      <span>PostgreSQL Engine Detected (Will be hot-dumped into snapshot)</span>
+                    </div>
+                  )}
+                  {databases.mysql && (
+                    <div className="flex items-center gap-2 p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 text-xs font-semibold">
+                      <span className="text-base">🐬</span>
+                      <span>MySQL / MariaDB Detected (Will be hot-dumped into snapshot)</span>
+                    </div>
+                  )}
+                  {!databases.postgres && !databases.mysql && (
+                    <div className="flex items-center gap-2 p-2 rounded-lg bg-zinc-100 dark:bg-zinc-800/60 text-zinc-500 text-[11px]">
+                      <Database className="w-3.5 h-3.5 text-zinc-400" />
+                      <span>No local database engines detected (filesystem snapshot only)</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
                   Snapshot Name
                 </label>
                 <input
                   type="text"
-                  placeholder="e.g. manual_web_backup"
+                  placeholder="e.g. manual_production_snap"
                   value={snapName}
                   onChange={(e) => setSnapName(e.target.value)}
                   required
@@ -859,9 +1008,9 @@ export default function BackupsView({ token, onShowToast }) {
               </div>
 
               <div className="p-3 rounded-xl bg-emerald-500/5 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-xs flex items-start gap-2">
-                <Sparkles className="w-4 h-4 shrink-0 mt-0.5" />
+                <Lock className="w-4 h-4 shrink-0 mt-0.5" />
                 <span>
-                  Archives are written directly to <code>/opt/nexus_backups</code> using multi-threaded <strong>Zstandard</strong> compression for minimal CPU overhead.
+                  Encrypted stream using <strong>AES-256-GCM</strong> and compressed with <strong>Zstandard</strong>. Protected with authenticated 28-byte cryptographic verification.
                 </span>
               </div>
 
@@ -880,7 +1029,7 @@ export default function BackupsView({ token, onShowToast }) {
                   className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition-colors disabled:opacity-50"
                 >
                   {submittingSnap && <RotateCw className="w-3.5 h-3.5 animate-spin" />}
-                  <span>{submittingSnap ? 'Compressing (zstd)...' : 'Start Snapshot'}</span>
+                  <span>{submittingSnap ? 'Encrypting & Streaming...' : 'Start Encrypted Snapshot'}</span>
                 </button>
               </div>
             </form>
@@ -908,6 +1057,25 @@ export default function BackupsView({ token, onShowToast }) {
             </div>
 
             <form onSubmit={handleCreateJob} className="p-6 space-y-4">
+              {/* Smart Database Detection Badges */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                  Database Auto-Discovery
+                </label>
+                <div className="space-y-1.5">
+                  {databases.postgres && (
+                    <div className="flex items-center gap-2 p-2 rounded-lg bg-blue-500/10 text-blue-600 dark:text-blue-400 text-xs font-semibold">
+                      <span>🐘 PostgreSQL active (will be automatically dumped)</span>
+                    </div>
+                  )}
+                  {databases.mysql && (
+                    <div className="flex items-center gap-2 p-2 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400 text-xs font-semibold">
+                      <span>🐬 MySQL/MariaDB active (will be automatically dumped)</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
                   Job Profile Name
@@ -1072,7 +1240,201 @@ export default function BackupsView({ token, onShowToast }) {
         </div>
       )}
 
-      {/* 6. MODAL: Scary Red Restore Gate */}
+      {/* 6. MODAL: S3 Cloud Storage Configuration */}
+      {isS3ModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-[#18181b] border border-zinc-200 dark:border-zinc-800 w-full max-w-lg rounded-2xl shadow-xl overflow-hidden">
+            <div className="px-6 py-4 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Cloud className="w-5 h-5 text-blue-500" />
+                <h3 className="font-bold text-sm text-zinc-900 dark:text-zinc-100">
+                  Off-Site S3 Cloud Replication
+                </h3>
+              </div>
+              <button
+                onClick={() => setIsS3ModalOpen(false)}
+                className="p-1 rounded-lg text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveS3Config} className="p-6 space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                  Cloud Storage Provider
+                </label>
+                <select
+                  value={s3Form.provider}
+                  onChange={(e) => {
+                    const prov = e.target.value;
+                    let endpoint = s3Form.endpoint;
+                    let region = s3Form.region;
+                    if (prov === 'r2') {
+                      region = 'auto';
+                    } else if (prov === 'aws') {
+                      endpoint = '';
+                      region = 'us-east-1';
+                    } else if (prov === 'minio') {
+                      endpoint = 'http://127.0.0.1:9000';
+                      region = 'us-east-1';
+                    }
+                    setS3Form({ ...s3Form, provider: prov, endpoint, region });
+                  }}
+                  className="w-full px-3 py-2 text-xs rounded-xl bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                >
+                  <option value="r2">Cloudflare R2 (Zero Egress)</option>
+                  <option value="aws">Amazon Web Services (AWS S3)</option>
+                  <option value="minio">MinIO (Self-Hosted Object Storage)</option>
+                  <option value="do">DigitalOcean Spaces</option>
+                  <option value="custom">Custom S3-Compatible Endpoint</option>
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                    Bucket Name
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="my-vps-backups"
+                    value={s3Form.bucket}
+                    onChange={(e) => setS3Form({ ...s3Form, bucket: e.target.value })}
+                    required
+                    className="w-full px-3 py-2 text-xs font-mono rounded-xl bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                    Region
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="auto or us-east-1"
+                    value={s3Form.region}
+                    onChange={(e) => setS3Form({ ...s3Form, region: e.target.value })}
+                    required
+                    className="w-full px-3 py-2 text-xs font-mono rounded-xl bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                  Custom Endpoint URL (Optional for AWS S3)
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. https://<account_id>.r2.cloudflarestorage.com"
+                  value={s3Form.endpoint}
+                  onChange={(e) => setS3Form({ ...s3Form, endpoint: e.target.value })}
+                  className="w-full px-3 py-2 text-xs font-mono rounded-xl bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                  Access Key ID
+                </label>
+                <input
+                  type="text"
+                  placeholder="AKIAIOSFODNN7EXAMPLE"
+                  value={s3Form.accessKey}
+                  onChange={(e) => setS3Form({ ...s3Form, accessKey: e.target.value })}
+                  required
+                  className="w-full px-3 py-2 text-xs font-mono rounded-xl bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                  Secret Access Key
+                </label>
+                <input
+                  type="password"
+                  placeholder="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+                  value={s3Form.secretKey}
+                  onChange={(e) => setS3Form({ ...s3Form, secretKey: e.target.value })}
+                  required={!s3Config?.configured}
+                  className="w-full px-3 py-2 text-xs font-mono rounded-xl bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+
+              {/* Enable Toggle */}
+              <div className="flex items-center justify-between p-3 rounded-xl bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800">
+                <div>
+                  <span className="text-xs font-bold text-zinc-900 dark:text-zinc-100 block">
+                    Enable Off-Site Replication
+                  </span>
+                  <span className="text-[11px] text-zinc-500">
+                    Automatically upload snapshots immediately after local creation.
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setS3Form({ ...s3Form, active: !s3Form.active })}
+                  className="text-2xl"
+                >
+                  {s3Form.active ? (
+                    <ToggleRight className="w-8 h-8 text-emerald-500" />
+                  ) : (
+                    <ToggleLeft className="w-8 h-8 text-zinc-400" />
+                  )}
+                </button>
+              </div>
+
+              {/* S3 Test Status Alert */}
+              {s3TestStatus && (
+                <div
+                  className={`p-3 rounded-xl text-xs flex items-center gap-2 border ${
+                    s3TestStatus.success
+                      ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400'
+                      : 'bg-red-500/10 border-red-500/30 text-red-600 dark:text-red-400'
+                  }`}
+                >
+                  {s3TestStatus.success ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <AlertTriangle className="w-4 h-4 shrink-0" />}
+                  <span className="truncate">{s3TestStatus.message}</span>
+                </div>
+              )}
+
+              <div className="flex items-center justify-between pt-2 border-t border-zinc-200 dark:border-zinc-800">
+                <button
+                  type="button"
+                  onClick={handleTestS3Connection}
+                  disabled={testingS3 || !s3Form.bucket || !s3Form.accessKey}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-zinc-200 dark:border-zinc-800 text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors disabled:opacity-50"
+                >
+                  {testingS3 ? <RotateCw className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5 text-blue-500" />}
+                  <span>{testingS3 ? 'Testing...' : 'Test Connection'}</span>
+                </button>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsS3ModalOpen(false)}
+                    disabled={savingS3}
+                    className="px-4 py-2 rounded-xl border border-zinc-200 dark:border-zinc-800 text-xs text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={savingS3}
+                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold transition-colors disabled:opacity-50"
+                  >
+                    {savingS3 && <RotateCw className="w-3.5 h-3.5 animate-spin" />}
+                    <span>{savingS3 ? 'Saving...' : 'Save Configuration'}</span>
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 7. MODAL: Scary Red Restore Gate */}
       {restoreModalData && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs animate-in fade-in duration-200">
           <div className="bg-white dark:bg-[#18181b] border-2 border-red-500/50 w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden">
@@ -1083,7 +1445,7 @@ export default function BackupsView({ token, onShowToast }) {
                   CONFIRM FULL SYSTEM RESTORATION
                 </h3>
                 <p className="text-[11px] text-red-500/90 font-mono">
-                  Atomic Staging & Extraction Gate
+                  AES-256-GCM Streaming Decryption & Atomic Staging
                 </p>
               </div>
             </div>
@@ -1092,7 +1454,7 @@ export default function BackupsView({ token, onShowToast }) {
               <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-300 text-xs space-y-1">
                 <p className="font-bold">⚠️ Warning: High Consequence Operation</p>
                 <p>
-                  Restoring this archive will extract the contents into the target directory. Existing files matching the archive structure may be overwritten.
+                  Restoring this archive will decrypt and extract the contents into the target directory. Existing files matching the archive structure will be overwritten.
                 </p>
               </div>
 
@@ -1151,7 +1513,7 @@ export default function BackupsView({ token, onShowToast }) {
                   className="flex items-center gap-2 px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold transition-colors disabled:opacity-40 disabled:cursor-not-allowed shadow-md"
                 >
                   {restoring && <RotateCw className="w-3.5 h-3.5 animate-spin" />}
-                  <span>{restoring ? 'Extracting via Staging...' : 'CONFIRM & RESTORE'}</span>
+                  <span>{restoring ? 'Decrypting & Restoring...' : 'CONFIRM & RESTORE'}</span>
                 </button>
               </div>
             </div>
@@ -1159,7 +1521,7 @@ export default function BackupsView({ token, onShowToast }) {
         </div>
       )}
 
-      {/* 7. MODAL: Delete Archive Confirmation */}
+      {/* 8. MODAL: Delete Archive Confirmation */}
       {deleteConfirmData && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
           <div className="bg-white dark:bg-[#18181b] border border-zinc-200 dark:border-zinc-800 w-full max-w-md rounded-2xl shadow-xl p-6 space-y-4">

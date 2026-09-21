@@ -26,6 +26,10 @@ beforeAll(() => {
   if (scheduler && typeof scheduler.initDb === 'function') {
     scheduler.initDb(inMemoryDb);
   }
+  const s3Replication = require('../s3Replication');
+  if (s3Replication && typeof s3Replication.initDb === 'function') {
+    s3Replication.initDb(inMemoryDb);
+  }
 });
 
 afterAll(() => {

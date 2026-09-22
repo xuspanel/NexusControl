@@ -34,7 +34,10 @@ router.post('/', async (req, res) => {
     role = 'operator',
     granular_policies = null,
     generate_vpn = false,
-    generateVpn = false
+    generateVpn = false,
+    vpn_full_tunnel = false,
+    full_tunnel = false,
+    fullTunnel = false
   } = req.body || {};
 
   try {
@@ -69,9 +72,12 @@ router.post('/', async (req, res) => {
     });
 
     let vpnProfile = null;
-    if (generate_vpn || generateVpn) {
+    const wantsVpn = Boolean(generate_vpn || generateVpn);
+    const isFullTunnel = Boolean(vpn_full_tunnel || full_tunnel || fullTunnel);
+
+    if (wantsVpn) {
       try {
-        vpnProfile = await wireguardEngine.generatePeer(user.username, user.id);
+        vpnProfile = await wireguardEngine.generatePeer(user.username, user.id, isFullTunnel);
         auditLogger.logEvent({
           action: 'VPN_PEER_CREATED',
           user: req.user?.username || 'system',
@@ -83,7 +89,8 @@ router.post('/', async (req, res) => {
             userId: user.id,
             username: user.username,
             internalIp: vpnProfile.internalIp,
-            publicKey: vpnProfile.publicKey
+            publicKey: vpnProfile.publicKey,
+            fullTunnel: isFullTunnel
           }
         });
       } catch (vpnErr) {

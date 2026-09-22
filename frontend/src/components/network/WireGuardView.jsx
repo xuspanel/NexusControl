@@ -33,6 +33,7 @@ export default function WireGuardView({ token, onShowToast }) {
 
   // New peer form state
   const [peerUsername, setPeerUsername] = useState('');
+  const [fullTunnel, setFullTunnel] = useState(false);
   const [creatingPeer, setCreatingPeer] = useState(false);
   const [formError, setFormError] = useState('');
 
@@ -145,7 +146,10 @@ export default function WireGuardView({ token, onShowToast }) {
       const res = await fetch('/api/wireguard/peers', {
         method: 'POST',
         headers: authHeaders,
-        body: JSON.stringify({ username: peerUsername.trim() })
+        body: JSON.stringify({
+          username: peerUsername.trim(),
+          full_tunnel: fullTunnel
+        })
       });
 
       const data = await res.json();
@@ -153,8 +157,9 @@ export default function WireGuardView({ token, onShowToast }) {
         throw new Error(data.error || 'Failed to create WireGuard peer profile.');
       }
 
-      if (onShowToast) onShowToast(`WireGuard peer '${peerUsername}' provisioned successfully`, 'success');
+      if (onShowToast) onShowToast(`WireGuard peer '${peerUsername}' (${fullTunnel ? 'Full Tunnel' : 'Split Tunnel'}) provisioned`, 'success');
       setPeerUsername('');
+      setFullTunnel(false);
       setIsCreateModalOpen(false);
       await fetchWireGuardData(true);
 
@@ -495,6 +500,41 @@ export default function WireGuardView({ token, onShowToast }) {
                 />
                 <p className="text-[11px] text-zinc-500 mt-1">
                   Assigned sequential IP in the <code className="text-zinc-400 font-mono">10.8.0.x/24</code> subnet automatically.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
+                  Tunnel Routing Mode
+                </label>
+                <div className="grid grid-cols-2 gap-2 p-1 bg-zinc-950 rounded-xl border border-zinc-800">
+                  <button
+                    type="button"
+                    onClick={() => setFullTunnel(false)}
+                    className={`py-2 px-3 rounded-lg text-xs font-medium transition-all text-center ${
+                      !fullTunnel
+                        ? 'bg-emerald-600 text-white font-semibold shadow-xs'
+                        : 'text-zinc-400 hover:text-zinc-200'
+                    }`}
+                  >
+                    Split Tunnel (10.8.0.0/24)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFullTunnel(true)}
+                    className={`py-2 px-3 rounded-lg text-xs font-medium transition-all text-center ${
+                      fullTunnel
+                        ? 'bg-emerald-600 text-white font-semibold shadow-xs'
+                        : 'text-zinc-400 hover:text-zinc-200'
+                    }`}
+                  >
+                    Full Tunnel (0.0.0.0/0)
+                  </button>
+                </div>
+                <p className="text-[11px] text-zinc-500 mt-1.5 leading-normal">
+                  {!fullTunnel
+                    ? 'Recommended: Only routes VPS dashboard & internal traffic through the VPN. Preserves normal phone/device internet speeds.'
+                    : 'Routes 100% of phone/laptop internet traffic through the VPS with NAT masquerading.'}
                 </p>
               </div>
 

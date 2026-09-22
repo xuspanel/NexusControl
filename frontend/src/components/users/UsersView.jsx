@@ -81,6 +81,7 @@ export default function UsersView({ token, onShowToast }) {
   const [copiedSecret, setCopiedSecret] = useState(false);
   const [copiedVpnConfig, setCopiedVpnConfig] = useState(false);
   const [generateVpn, setGenerateVpn] = useState(false);
+  const [vpnFullTunnel, setVpnFullTunnel] = useState(false);
   const [activeCredentialTab, setActiveCredentialTab] = useState('2fa');
 
   const fetchContainers = useCallback(async () => {
@@ -139,7 +140,8 @@ export default function UsersView({ token, onShowToast }) {
         password: newPassword,
         role: newRole,
         granular_policies: newRole === 'custom' ? newPolicy : null,
-        generate_vpn: generateVpn
+        generate_vpn: generateVpn,
+        vpn_full_tunnel: vpnFullTunnel
       };
 
       const res = await fetch('/api/users', {
@@ -172,6 +174,7 @@ export default function UsersView({ token, onShowToast }) {
       setNewRole('operator');
       setNewPolicy(DEFAULT_POLICY);
       setGenerateVpn(false);
+      setVpnFullTunnel(false);
       fetchUsers();
     } catch (err) {
       onShowToast?.(err.message, 'error');
@@ -1181,29 +1184,68 @@ export default function UsersView({ token, onShowToast }) {
                   {newRole === 'custom' && renderPolicyBuilder(newPolicy, setNewPolicy, newPathInput, setNewPathInput)}
 
                   {/* WireGuard Zero Trust VPN Profile Provisioning Checkbox */}
-                  <div className="p-3.5 rounded-xl bg-zinc-50 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="p-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-500">
-                        <Shield className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <div className="text-xs font-semibold text-zinc-900 dark:text-zinc-100">
-                          Generate WireGuard VPN Profile
+                  <div className="p-3.5 rounded-xl bg-zinc-50 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-500">
+                          <Shield className="w-4 h-4" />
                         </div>
-                        <div className="text-[10px] text-zinc-500">
-                          Assigns a 10.8.0.x IP address and renders mobile/desktop configuration QR code
+                        <div>
+                          <div className="text-xs font-semibold text-zinc-900 dark:text-zinc-100">
+                            Generate WireGuard VPN Profile
+                          </div>
+                          <div className="text-[10px] text-zinc-500">
+                            Assigns a 10.8.0.x IP address and renders mobile/desktop configuration QR code
+                          </div>
                         </div>
                       </div>
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={generateVpn}
+                          onChange={(e) => setGenerateVpn(e.target.checked)}
+                          className="sr-only peer"
+                        />
+                        <div className="w-9 h-5 bg-zinc-300 dark:bg-zinc-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-zinc-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500"></div>
+                      </label>
                     </div>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={generateVpn}
-                        onChange={(e) => setGenerateVpn(e.target.checked)}
-                        className="sr-only peer"
-                      />
-                      <div className="w-9 h-5 bg-zinc-300 dark:bg-zinc-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-zinc-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500"></div>
-                    </label>
+
+                    {generateVpn && (
+                      <div className="pt-2 border-t border-zinc-200 dark:border-zinc-800">
+                        <label className="block text-[11px] font-semibold text-zinc-700 dark:text-zinc-300 mb-1.5">
+                          Tunnel Routing Mode
+                        </label>
+                        <div className="grid grid-cols-2 gap-2 p-1 bg-zinc-100 dark:bg-zinc-950 rounded-xl border border-zinc-200 dark:border-zinc-800">
+                          <button
+                            type="button"
+                            onClick={() => setVpnFullTunnel(false)}
+                            className={`py-1.5 px-2.5 rounded-lg text-xs font-medium transition-all text-center ${
+                              !vpnFullTunnel
+                                ? 'bg-emerald-600 text-white font-semibold shadow-xs'
+                                : 'text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200'
+                            }`}
+                          >
+                            Split Tunnel (10.8.0.0/24)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setVpnFullTunnel(true)}
+                            className={`py-1.5 px-2.5 rounded-lg text-xs font-medium transition-all text-center ${
+                              vpnFullTunnel
+                                ? 'bg-emerald-600 text-white font-semibold shadow-xs'
+                                : 'text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200'
+                            }`}
+                          >
+                            Full Tunnel (0.0.0.0/0)
+                          </button>
+                        </div>
+                        <p className="text-[10px] text-zinc-500 mt-1">
+                          {!vpnFullTunnel
+                            ? 'Recommended: Only routes panel & VPS subnet traffic through the VPN. Normal internet remains direct.'
+                            : 'Routes all device internet traffic through VPS with NAT masquerading.'}
+                        </p>
+                      </div>
+                    )}
                   </div>
                 </div>
 

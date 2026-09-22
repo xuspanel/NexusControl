@@ -52,17 +52,18 @@ describe('Zero Trust Network (WireGuard) Test Suite', () => {
       expect(ip1).toBe('10.8.0.2');
     });
 
-    test('generatePeer creates client config, QR code, and updates wg0.conf', async () => {
-      const peer = await wireguardEngine.generatePeer('alice', 'user-alice-123');
+    test('generatePeer creates client config with Split Tunnel by default (10.8.0.0/24)', async () => {
+      const peer = await wireguardEngine.generatePeer('alice', 'user-alice-123', false);
       expect(peer).toBeDefined();
       expect(peer.id).toBeDefined();
       expect(peer.username).toBe('alice');
       expect(peer.internalIp).toBe('10.8.0.2');
       expect(peer.publicKey).toBeDefined();
+      expect(peer.fullTunnel).toBe(false);
       expect(peer.clientConfig).toContain('[Interface]');
       expect(peer.clientConfig).toContain('Address = 10.8.0.2/32');
       expect(peer.clientConfig).toContain('[Peer]');
-      expect(peer.clientConfig).toContain('AllowedIPs = 0.0.0.0/0');
+      expect(peer.clientConfig).toContain('AllowedIPs = 10.8.0.0/24');
       expect(peer.qrCodeDataUrl).toMatch(/^data:image\/png;base64,/);
 
       // Verify wg0.conf has alice's peer block
@@ -72,9 +73,16 @@ describe('Zero Trust Network (WireGuard) Test Suite', () => {
       expect(conf).toContain('AllowedIPs = 10.8.0.2/32');
     });
 
-    test('Subsequent peer receives next sequential IP 10.8.0.3', async () => {
+    test('generatePeer creates client config with Full Tunnel when requested (0.0.0.0/0)', async () => {
+      const peerFull = await wireguardEngine.generatePeer('alice-full', 'user-alice-full', true);
+      expect(peerFull).toBeDefined();
+      expect(peerFull.fullTunnel).toBe(true);
+      expect(peerFull.clientConfig).toContain('AllowedIPs = 0.0.0.0/0');
+    });
+
+    test('Subsequent peer receives next sequential IP 10.8.0.4', async () => {
       const peer2 = await wireguardEngine.generatePeer('bob');
-      expect(peer2.internalIp).toBe('10.8.0.3');
+      expect(peer2.internalIp).toBe('10.8.0.4');
       expect(peer2.username).toBe('bob');
     });
 

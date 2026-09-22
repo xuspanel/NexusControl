@@ -194,12 +194,24 @@ function derivePublicKey(privateKey) {
 }
 
 /**
+ * Dynamically detect default public interface (e.g., eth0, ens3, enp0s6)
+ */
+function getDefaultPublicNic() {
+  try {
+    return cp.execSync("ip route show default | awk '{print $5}'", { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim() || 'eth0';
+  } catch (e) {
+    return 'eth0';
+  }
+}
+
+/**
  * Initialize /etc/wireguard/wg0.conf if it does not exist
  */
 function initServerInterface() {
   ensureIpForwarding();
   const configPath = getConfigPath();
   const configDir = path.dirname(configPath);
+  const publicNic = getDefaultPublicNic();
 
   if (!fs.existsSync(configDir)) {
     try {
@@ -216,6 +228,8 @@ function initServerInterface() {
       `Address = ${SERVER_IP}`,
       `ListenPort = ${SERVER_PORT}`,
       `PrivateKey = ${privateKey}`,
+      `PostUp = iptables -A FORWARD -i wg0 -j ACCEPT; iptables -t nat -A POSTROUTING -o ${publicNic} -j MASQUERADE; ip6tables -A FORWARD -i wg0 -j ACCEPT 2>/dev/null || true`,
+      `PostDown = iptables -D FORWARD -i wg0 -j ACCEPT; iptables -t nat -D POSTROUTING -o ${publicNic} -j MASQUERADE; ip6tables -D FORWARD -i wg0 -j ACCEPT 2>/dev/null || true`,
       'SaveConfig = false',
       ''
     ].join('\n');
@@ -229,7 +243,19 @@ function initServerInterface() {
     };
   }
 
-  const content = fs.readFileSync(configPath, 'utf8');
+  let content = fs.readFileSync(configPath, 'utf8');
+
+  // If PostUp NAT masquerading rule is missing in existing config, inject it dynamically
+  if (!content.includes('PostUp') && content.includes('[Interface]')) {
+    const postUpRules = [
+      `PostUp = iptables -A FORWARD -i wg0 -j ACCEPT; iptables -t nat -A POSTROUTING -o ${publicNic} -j MASQUERADE; ip6tables -A FORWARD -i wg0 -j ACCEPT 2>/dev/null || true`,
+      `PostDown = iptables -D FORWARD -i wg0 -j ACCEPT; iptables -t nat -D POSTROUTING -o ${publicNic} -j MASQUERADE; ip6tables -D FORWARD -i wg0 -j ACCEPT 2>/dev/null || true`
+    ].join('\n');
+
+    content = content.replace('[Interface]', `[Interface]\n${postUpRules}`);
+    fs.writeFileSync(configPath, content, { mode: 0o600 });
+  }
+
   const parsed = parseServerConfig(content);
   const publicKey = parsed.privateKey ? derivePublicKey(parsed.privateKey) : '';
 
@@ -329,8 +355,9 @@ function syncInterface() {
  * Generate a new WireGuard peer
  * @param {string} username Username or client identifier
  * @param {string} [userId] Optional linked user ID
+ * @param {boolean} [fullTunnel] If true AllowedIPs = 0.0.0.0/0 (Full Tunnel), else 10.8.0.0/24 (Split Tunnel)
  */
-async function generatePeer(username, userId = null) {
+async function generatePeer(username, userId = null, fullTunnel = false) {
   if (!username) {
     throw new Error('Username is required for WireGuard peer generation');
   }
@@ -349,6 +376,7 @@ async function generatePeer(username, userId = null) {
   const peerId = crypto.randomUUID();
   const createdAt = Date.now();
   const endpoint = `${getHostEndpoint()}:${serverParsed.listenPort || SERVER_PORT}`;
+  const allowedIps = fullTunnel ? '0.0.0.0/0' : '10.8.0.0/24';
 
   // Client configuration (.conf) strictly formatted without comments or leading whitespace
   const clientConfig = [
@@ -360,7 +388,7 @@ async function generatePeer(username, userId = null) {
     '[Peer]',
     `PublicKey = ${serverPublicKey}`,
     `Endpoint = ${endpoint}`,
-    'AllowedIPs = 0.0.0.0/0',
+    `AllowedIPs = ${allowedIps}`,
     'PersistentKeepalive = 25'
   ].join('\n');
 
@@ -403,6 +431,7 @@ async function generatePeer(username, userId = null) {
     internalIp: assignedIp,
     clientConfig,
     qrCodeDataUrl,
+    fullTunnel: Boolean(fullTunnel),
     createdAt
   };
 }

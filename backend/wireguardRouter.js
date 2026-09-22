@@ -38,13 +38,15 @@ router.get('/peers', (req, res) => {
  * Provision a new WireGuard peer and generate client config + QR code
  */
 router.post('/peers', async (req, res) => {
-  const { username, user_id = null } = req.body || {};
+  const { username, user_id = null, full_tunnel = false, fullTunnel = false } = req.body || {};
   if (!username || typeof username !== 'string' || !username.trim()) {
     return res.status(400).json({ error: 'Valid username or client label is required.' });
   }
 
+  const isFullTunnel = Boolean(full_tunnel || fullTunnel);
+
   try {
-    const peer = await wireguardEngine.generatePeer(username.trim(), user_id);
+    const peer = await wireguardEngine.generatePeer(username.trim(), user_id, isFullTunnel);
 
     auditLogger.logEvent({
       action: 'VPN_PEER_CREATED',
@@ -57,7 +59,8 @@ router.post('/peers', async (req, res) => {
         userId: peer.userId,
         username: peer.username,
         internalIp: peer.internalIp,
-        publicKey: peer.publicKey
+        publicKey: peer.publicKey,
+        fullTunnel: isFullTunnel
       }
     });
 

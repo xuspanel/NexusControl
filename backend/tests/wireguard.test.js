@@ -62,7 +62,7 @@ describe('Zero Trust Network (WireGuard) Test Suite', () => {
       expect(peer.clientConfig).toContain('[Interface]');
       expect(peer.clientConfig).toContain('Address = 10.8.0.2/32');
       expect(peer.clientConfig).toContain('[Peer]');
-      expect(peer.clientConfig).toContain('AllowedIPs = 0.0.0.0/0, ::/0');
+      expect(peer.clientConfig).toContain('AllowedIPs = 0.0.0.0/0');
       expect(peer.qrCodeDataUrl).toMatch(/^data:image\/png;base64,/);
 
       // Verify wg0.conf has alice's peer block

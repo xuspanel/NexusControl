@@ -145,18 +145,18 @@ function parseServerConfig(content) {
   for (const line of lines) {
     const trimmed = line.trim();
     if (trimmed.startsWith('#')) continue;
-    if (trimmed.startsWith('PrivateKey')) {
-      const parts = trimmed.split('=');
-      if (parts[1]) {
-        const val = parts[1].trim();
-        if (val.length === 44) privateKey = val;
-      }
-    } else if (trimmed.startsWith('Address')) {
-      const parts = trimmed.split('=');
-      if (parts[1]) address = parts[1].trim();
-    } else if (trimmed.startsWith('ListenPort')) {
-      const parts = trimmed.split('=');
-      if (parts[1]) listenPort = parseInt(parts[1].trim(), 10) || SERVER_PORT;
+    const eqIdx = trimmed.indexOf('=');
+    if (eqIdx === -1) continue;
+
+    const key = trimmed.slice(0, eqIdx).trim();
+    const val = trimmed.slice(eqIdx + 1).trim();
+
+    if (key === 'PrivateKey') {
+      privateKey = val;
+    } else if (key === 'Address') {
+      address = val;
+    } else if (key === 'ListenPort') {
+      listenPort = parseInt(val, 10) || SERVER_PORT;
     }
   }
 
@@ -248,15 +248,10 @@ function getHostEndpoint() {
   if (process.env.WIREGUARD_ENDPOINT) {
     return process.env.WIREGUARD_ENDPOINT;
   }
-  const nets = os.networkInterfaces();
-  for (const name of Object.keys(nets)) {
-    for (const net of nets[name] || []) {
-      if (net.family === 'IPv4' && !net.internal && !net.address.startsWith('10.8.')) {
-        return net.address;
-      }
-    }
+  if (process.env.PUBLIC_IP) {
+    return process.env.PUBLIC_IP;
   }
-  return '127.0.0.1';
+  return '132.145.70.205';
 }
 
 /**
@@ -355,22 +350,18 @@ async function generatePeer(username, userId = null) {
   const createdAt = Date.now();
   const endpoint = `${getHostEndpoint()}:${serverParsed.listenPort || SERVER_PORT}`;
 
-  // Client configuration (.conf)
+  // Client configuration (.conf) strictly formatted without comments or leading whitespace
   const clientConfig = [
-    `# NexusControl Zero Trust VPN Client Profile`,
-    `# User: ${username}`,
-    `# Created: ${new Date(createdAt).toISOString()}`,
-    `[Interface]`,
+    '[Interface]',
     `PrivateKey = ${clientPrivateKey}`,
     `Address = ${assignedIp}/32`,
-    `DNS = 1.1.1.1, 8.8.8.8`,
-    ``,
-    `[Peer]`,
+    'DNS = 1.1.1.1, 8.8.8.8',
+    '',
+    '[Peer]',
     `PublicKey = ${serverPublicKey}`,
     `Endpoint = ${endpoint}`,
-    `AllowedIPs = 0.0.0.0/0, ::/0`,
-    `PersistentKeepalive = 25`,
-    ``
+    'AllowedIPs = 0.0.0.0/0',
+    'PersistentKeepalive = 25'
   ].join('\n');
 
   // Generate mobile-ready QR code data URL

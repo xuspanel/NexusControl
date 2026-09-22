@@ -228,8 +228,8 @@ function initServerInterface() {
       `Address = ${SERVER_IP}`,
       `ListenPort = ${SERVER_PORT}`,
       `PrivateKey = ${privateKey}`,
-      `PostUp = iptables -A FORWARD -i wg0 -j ACCEPT; iptables -t nat -A POSTROUTING -o ${publicNic} -j MASQUERADE; ip6tables -A FORWARD -i wg0 -j ACCEPT 2>/dev/null || true`,
-      `PostDown = iptables -D FORWARD -i wg0 -j ACCEPT; iptables -t nat -D POSTROUTING -o ${publicNic} -j MASQUERADE; ip6tables -D FORWARD -i wg0 -j ACCEPT 2>/dev/null || true`,
+      `PostUp = iptables -I FORWARD 1 -i wg0 -j ACCEPT; iptables -I FORWARD 1 -o wg0 -j ACCEPT; iptables -t nat -A POSTROUTING -o ${publicNic} -j MASQUERADE; ip6tables -I FORWARD 1 -i wg0 -j ACCEPT 2>/dev/null || true`,
+      `PostDown = iptables -D FORWARD -i wg0 -j ACCEPT; iptables -D FORWARD -o wg0 -j ACCEPT; iptables -t nat -D POSTROUTING -o ${publicNic} -j MASQUERADE; ip6tables -D FORWARD -i wg0 -j ACCEPT 2>/dev/null || true`,
       'SaveConfig = false',
       ''
     ].join('\n');
@@ -245,14 +245,16 @@ function initServerInterface() {
 
   let content = fs.readFileSync(configPath, 'utf8');
 
-  // If PostUp NAT masquerading rule is missing in existing config, inject it dynamically
-  if (!content.includes('PostUp') && content.includes('[Interface]')) {
-    const postUpRules = [
-      `PostUp = iptables -A FORWARD -i wg0 -j ACCEPT; iptables -t nat -A POSTROUTING -o ${publicNic} -j MASQUERADE; ip6tables -A FORWARD -i wg0 -j ACCEPT 2>/dev/null || true`,
-      `PostDown = iptables -D FORWARD -i wg0 -j ACCEPT; iptables -t nat -D POSTROUTING -o ${publicNic} -j MASQUERADE; ip6tables -D FORWARD -i wg0 -j ACCEPT 2>/dev/null || true`
-    ].join('\n');
+  const postUpLine = `PostUp = iptables -I FORWARD 1 -i wg0 -j ACCEPT; iptables -I FORWARD 1 -o wg0 -j ACCEPT; iptables -t nat -A POSTROUTING -o ${publicNic} -j MASQUERADE; ip6tables -I FORWARD 1 -i wg0 -j ACCEPT 2>/dev/null || true`;
+  const postDownLine = `PostDown = iptables -D FORWARD -i wg0 -j ACCEPT; iptables -D FORWARD -o wg0 -j ACCEPT; iptables -t nat -D POSTROUTING -o ${publicNic} -j MASQUERADE; ip6tables -D FORWARD -i wg0 -j ACCEPT 2>/dev/null || true`;
 
-    content = content.replace('[Interface]', `[Interface]\n${postUpRules}`);
+  // Update existing PostUp / PostDown rules or inject if missing
+  if (content.includes('PostUp =') || content.includes('PostUp=')) {
+    content = content.replace(/^PostUp\s*=.*$/m, postUpLine);
+    content = content.replace(/^PostDown\s*=.*$/m, postDownLine);
+    fs.writeFileSync(configPath, content, { mode: 0o600 });
+  } else if (content.includes('[Interface]')) {
+    content = content.replace('[Interface]', `[Interface]\n${postUpLine}\n${postDownLine}`);
     fs.writeFileSync(configPath, content, { mode: 0o600 });
   }
 

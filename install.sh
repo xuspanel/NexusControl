@@ -144,30 +144,33 @@ fi
 
 log_success "Core dependencies installed successfully."
 
-# Node.js v22 Installation via NodeSource
-log_info "Configuring Node.js v22 LTS runtime..."
-NEED_NODE=1
-if command -v node >/dev/null 2>&1; then
-  CURRENT_NODE_VER="$(node -v | tr -d 'v' | cut -d'.' -f1)"
-  if [ "${CURRENT_NODE_VER}" -ge 22 ]; then
-    log_success "Node.js v$(node -v) is already installed."
-    NEED_NODE=0
-  else
-    log_warn "Detected Node.js v$(node -v). Upgrading to Node.js v22 LTS..."
-  fi
-fi
+# Node.js Smart Version Check & NodeSource Setup
+log_info "Configuring Node.js runtime environment..."
 
-if [ "${NEED_NODE}" -eq 1 ]; then
-  log_info "Fetching NodeSource repository for Node.js v22..."
-  if [ "${OS_FAMILY}" = "debian" ]; then
-    export DEBIAN_FRONTEND=noninteractive
-    curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
-    apt-get install -y nodejs
-  elif [ "${OS_FAMILY}" = "rhel" ]; then
-    curl -fsSL https://rpm.nodesource.com/setup_22.x | bash -
-    ${PKG_MGR} install -y nodejs
-  fi
-  log_success "Node.js $(node -v) and npm v$(npm -v) ready."
+if command -v node >/dev/null 2>&1; then
+    NODE_VERSION=$(node -v | cut -d 'v' -f 2 | cut -d '.' -f 1)
+    echo "Detected existing Node.js version: v$NODE_VERSION"
+    
+    if [ "$NODE_VERSION" -ge 22 ]; then
+        echo "✅ Compatible Node.js environment found. Skipping NodeSource installation."
+        # Proceed with the rest of the installation
+    else
+        echo "❌ ERROR: Node.js v$NODE_VERSION is too old."
+        echo "NexusControl requires Node.js v22 or higher for native SQLite support."
+        echo "Please upgrade Node.js manually, or run this installer on a fresh VPS."
+        exit 1
+    fi
+else
+    echo "Node.js not found. Installing Node.js 22 LTS..."
+    if [ "${OS_FAMILY}" = "debian" ]; then
+        export DEBIAN_FRONTEND=noninteractive
+        curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+        apt-get install -y nodejs
+    elif [ "${OS_FAMILY}" = "rhel" ]; then
+        curl -fsSL https://rpm.nodesource.com/setup_22.x | bash -
+        ${PKG_MGR} install -y nodejs
+    fi
+    log_success "Installed Node.js $(node -v) and npm v$(npm -v)."
 fi
 
 # Docker Engine Installation & Activation

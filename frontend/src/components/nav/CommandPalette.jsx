@@ -16,6 +16,7 @@ import {
   LayoutDashboard,
   CheckCircle2,
   Archive,
+  Bell,
   X
 } from 'lucide-react';
 import { getNavItemsForRole } from '../../config/navigation';
@@ -140,6 +141,20 @@ export default function CommandPalette({
         action: () => {
           onSelectTab('network');
           onExecuteAction?.('open_wireguard');
+        }
+      },
+      {
+        id: 'configure_alerts',
+        module: 'alerts',
+        type: 'action',
+        category: 'Quick Actions',
+        label: 'Configure Notifications & Alerts',
+        description: 'Manage Discord / Telegram webhooks, incident triggers & resource thresholds',
+        icon: Bell,
+        shortcut: 'Alt + 0',
+        roles: ['superadmin'],
+        action: () => {
+          onSelectTab('alerts');
         }
       },
       {

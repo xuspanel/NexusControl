@@ -213,7 +213,100 @@ function initScheduler(databaseInstance) {
     registerCronJob(job);
   }
 
-  console.log(`[Scheduler] Initialized background backup scheduler with ${scheduledTasks.size} active cron jobs.`);
+  // Resource Monitor state
+  if (resourceMonitorTask) {
+    try {
+      resourceMonitorTask.stop();
+    } catch {}
+    resourceMonitorTask = null;
+  }
+
+  // Register 5-minute background resource monitor
+  resourceMonitorTask = cron.schedule('*/5 * * * *', () => {
+    checkResourceThresholds();
+  });
+
+  console.log(`[Scheduler] Initialized background backup scheduler with ${scheduledTasks.size} active cron jobs and active resource monitor.`);
+}
+
+let resourceMonitorTask = null;
+let cpuAlertActive = false;
+let ramAlertActive = false;
+
+/**
+ * Check host CPU and RAM against alerts_config thresholds
+ * Dispatches stateful notifications (alert once on spike, alert once on recovery)
+ */
+function checkResourceThresholds() {
+  try {
+    const alertEngine = require('./alertEngine');
+    const config = alertEngine.getRawAlertsConfig();
+    if (!config || !config.active) return;
+
+    const os = require('node:os');
+    const totalMem = os.totalmem();
+    const freeMem = os.freemem();
+    const usedMem = totalMem - freeMem;
+    const ramPercent = totalMem > 0 ? Math.round((usedMem / totalMem) * 100) : 0;
+
+    let cpuPercent = 0;
+    try {
+      const collector = require('./collector');
+      const cpuStats = collector.getCPUStats();
+      cpuPercent = Math.round(cpuStats.usage || 0);
+    } catch {
+      const cpus = os.cpus();
+      const load1 = os.loadavg()[0] || 0;
+      cpuPercent = Math.min(100, Math.round((load1 / Math.max(1, cpus.length)) * 100));
+    }
+
+    const cpuThreshold = config.cpu_threshold_percent || 90;
+    const ramThreshold = config.ram_threshold_percent || 90;
+
+    // CPU state transition check
+    if (cpuPercent >= cpuThreshold) {
+      if (!cpuAlertActive) {
+        cpuAlertActive = true;
+        alertEngine.sendAlert(
+          '⚠️ High CPU Utilization Alert',
+          `Host CPU usage has reached ${cpuPercent}% (configured threshold: ${cpuThreshold}%).`,
+          'warning',
+          'resource'
+        ).catch(() => {});
+      }
+    } else if (cpuAlertActive) {
+      cpuAlertActive = false;
+      alertEngine.sendAlert(
+        '✅ CPU Utilization Normal',
+        `Host CPU usage has normalized to ${cpuPercent}% (below threshold ${cpuThreshold}%).`,
+        'success',
+        'resource'
+      ).catch(() => {});
+    }
+
+    // RAM state transition check
+    if (ramPercent >= ramThreshold) {
+      if (!ramAlertActive) {
+        ramAlertActive = true;
+        alertEngine.sendAlert(
+          '⚠️ High Memory Utilization Alert',
+          `Host RAM usage has reached ${ramPercent}% (configured threshold: ${ramThreshold}%).`,
+          'warning',
+          'resource'
+        ).catch(() => {});
+      }
+    } else if (ramAlertActive) {
+      ramAlertActive = false;
+      alertEngine.sendAlert(
+        '✅ Memory Utilization Normal',
+        `Host RAM usage has normalized to ${ramPercent}% (below threshold ${ramThreshold}%).`,
+        'success',
+        'resource'
+      ).catch(() => {});
+    }
+  } catch (err) {
+    console.warn('[Scheduler] Resource monitor error:', err.message);
+  }
 }
 
 /**
@@ -345,6 +438,15 @@ function getActiveTaskCount() {
   return scheduledTasks.size;
 }
 
+function getResourceAlertStates() {
+  return { cpuAlertActive, ramAlertActive };
+}
+
+function resetResourceAlertStates() {
+  cpuAlertActive = false;
+  ramAlertActive = false;
+}
+
 module.exports = {
   initDb,
   initScheduler,
@@ -355,5 +457,8 @@ module.exports = {
   listJobs,
   executeJob,
   enforceRetentionPolicy,
-  getActiveTaskCount
+  getActiveTaskCount,
+  checkResourceThresholds,
+  getResourceAlertStates,
+  resetResourceAlertStates
 };

@@ -369,15 +369,27 @@ async function createBackup(name, targetPaths, type = 'manual', jobId = null) {
     s3Replication.uploadToS3(archivePath).catch((s3Err) => {
       // S3 error already logged to auditLogger in s3Replication
       console.warn(`[BackupEngine] S3 cloud replication note: ${s3Err.message}`);
+      try {
+        const alertEngine = require('./alertEngine');
+        alertEngine.sendAlert('❌ S3 Backup Replication Failed', `Cloud replication to S3 failed for ${name}: ${s3Err.message}`, 'error', 'backup').catch(() => {});
+      } catch {}
     });
 
     gdriveReplication.uploadToGoogleDrive(archivePath).catch((gdErr) => {
       // GDrive error already logged to auditLogger in gdriveReplication
       console.warn(`[BackupEngine] Google Drive replication note: ${gdErr.message}`);
+      try {
+        const alertEngine = require('./alertEngine');
+        alertEngine.sendAlert('❌ Google Drive Replication Failed', `Cloud replication to Google Drive failed for ${name}: ${gdErr.message}`, 'error', 'backup').catch(() => {});
+      } catch {}
     });
 
     return backupRecord;
   } catch (err) {
+    try {
+      const alertEngine = require('./alertEngine');
+      alertEngine.sendAlert('❌ Backup Creation Failed', `Backup archive generation failed: ${err.message}`, 'error', 'backup').catch(() => {});
+    } catch {}
     if (fs.existsSync(archivePath)) {
       try { fs.unlinkSync(archivePath); } catch {}
     }

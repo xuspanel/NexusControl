@@ -6,7 +6,8 @@ import {
   Cpu,
   Server,
   Radio,
-  Menu
+  Menu,
+  Bell
 } from 'lucide-react';
 import { getNavItem } from '../../config/navigation';
 import { useAuth } from '../../context/AuthContext';
@@ -14,6 +15,7 @@ import ThemeToggle from '../ThemeToggle';
 
 export default function TopHeader({
   activeTab,
+  onSelectTab,
   sidebarCollapsed,
   telemetry,
   connected,
@@ -129,6 +131,21 @@ export default function TopHeader({
           <span className="w-1.5 h-1.5 rounded-full bg-current" />
           <span>{role}</span>
         </div>
+
+        {/* Notifications & Alerts Bell Trigger (SuperAdmin only) */}
+        {role === 'superadmin' && (
+          <button
+            onClick={() => onSelectTab?.('alerts')}
+            className={`p-2 rounded-xl border transition-all relative ${
+              activeTab === 'alerts'
+                ? 'bg-purple-500/15 border-purple-500/30 text-purple-400 shadow-2xs'
+                : 'bg-zinc-100 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-500 dark:text-zinc-400 hover:text-purple-400 hover:border-purple-500/20'
+            }`}
+            title="Notifications & Webhook Alerts"
+          >
+            <Bell className="w-4 h-4" />
+          </button>
+        )}
 
         {/* Dark/Light Theme Toggle */}
         <ThemeToggle />

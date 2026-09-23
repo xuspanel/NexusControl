@@ -19,6 +19,7 @@ import VHostView from './components/vhost/VHostView';
 import BackupsView from './components/backups/BackupsView';
 import UsersView from './components/users/UsersView';
 import WireGuardView from './components/network/WireGuardView';
+import AlertsView from './components/settings/AlertsView';
 import { AuthProvider } from './context/AuthContext';
 
 // Adaptive Tri-Mode Navigation Components
@@ -184,6 +185,7 @@ export default function App() {
       {/* 2. Fixed Top Header (All screens, responsive left offset) */}
       <TopHeader
         activeTab={activeTab}
+        onSelectTab={setActiveTab}
         sidebarCollapsed={sidebarCollapsed}
         telemetry={telemetry}
         connected={connected}
@@ -276,6 +278,10 @@ export default function App() {
         ) : activeTab === 'network' ? (
           <main className="max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-4">
             <WireGuardView token={token} onShowToast={showToast} />
+          </main>
+        ) : activeTab === 'alerts' ? (
+          <main className="max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-4">
+            <AlertsView token={token} onShowToast={showToast} />
           </main>
         ) : (
           <main className="max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-4">

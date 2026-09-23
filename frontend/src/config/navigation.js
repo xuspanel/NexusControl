@@ -7,7 +7,8 @@ import {
   ShieldCheck,
   Archive,
   Users,
-  Shield
+  Shield,
+  Bell
 } from 'lucide-react';
 
 /**
@@ -102,6 +103,16 @@ export const NAV_ITEMS = [
     icon: 'Shield',
     iconComponent: Shield,
     shortcut: '9',
+    primaryMobile: false,
+    roles: ['superadmin']
+  },
+  {
+    id: 'alerts',
+    label: 'Notifications & Alerts',
+    description: 'Real-time Webhook alerting to Telegram & Discord for health & security events',
+    icon: 'Bell',
+    iconComponent: Bell,
+    shortcut: '0',
     primaryMobile: false,
     roles: ['superadmin']
   }

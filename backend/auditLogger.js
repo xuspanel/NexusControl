@@ -121,6 +121,21 @@ function logEvent({
       eventHash
     );
 
+    // Asynchronous Webhook Alert Hook for critical security actions
+    if (
+      eventData.action === 'SECURITY_VIOLATION' ||
+      (eventData.action.startsWith('AUTH_') && eventData.action.endsWith('_FAILED'))
+    ) {
+      try {
+        const alertEngine = require('./alertEngine');
+        const alertTitle = eventData.action === 'SECURITY_VIOLATION'
+          ? '🚨 Security Violation Detected'
+          : '⚠️ Authentication Failure';
+        const details = `Action: ${eventData.action}\nUser: ${eventData.user}\nIP: ${eventData.ip}${eventData.target_resource ? '\nTarget: ' + eventData.target_resource : ''}${eventData.payload ? '\nPayload: ' + eventData.payload : ''}`;
+        alertEngine.sendAlert(alertTitle, details, 'security', 'security').catch(() => {});
+      } catch {}
+    }
+
     return {
       id,
       action: eventData.action,

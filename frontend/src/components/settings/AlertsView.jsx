@@ -18,14 +18,19 @@ import {
   Archive,
   Lock,
   Sliders,
-  Check
+  Check,
+  Mail,
+  AtSign,
+  Server
 } from 'lucide-react';
 
 export default function AlertsView({ token, onShowToast }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [testingEmail, setTestingEmail] = useState(false);
   const [testResults, setTestResults] = useState(null);
+  const [emailTestResult, setEmailTestResult] = useState(null);
 
   // Form states
   const [active, setActive] = useState(false);
@@ -37,9 +42,19 @@ export default function AlertsView({ token, onShowToast }) {
   const [alertOnSecurityViolations, setAlertOnSecurityViolations] = useState(true);
   const [alertOnBackupFailures, setAlertOnBackupFailures] = useState(true);
 
+  // SMTP Email Form states
+  const [smtpHost, setSmtpHost] = useState('');
+  const [smtpPort, setSmtpPort] = useState(587);
+  const [smtpUser, setSmtpUser] = useState('');
+  const [smtpPass, setSmtpPass] = useState('');
+  const [smtpFrom, setSmtpFrom] = useState('');
+  const [alertEmailAddress, setAlertEmailAddress] = useState('');
+  const [emailEnabled, setEmailEnabled] = useState(false);
+
   // Password / secret visibility toggles
   const [showDiscord, setShowDiscord] = useState(false);
   const [showTelegram, setShowTelegram] = useState(false);
+  const [showSmtpPass, setShowSmtpPass] = useState(false);
 
   const authHeaders = useMemo(() => ({
     'Authorization': `Bearer ${token}`,
@@ -61,6 +76,13 @@ export default function AlertsView({ token, onShowToast }) {
         setRamThresholdPercent(data.config.ramThresholdPercent ?? 90);
         setAlertOnSecurityViolations(data.config.alertOnSecurityViolations ?? true);
         setAlertOnBackupFailures(data.config.alertOnBackupFailures ?? true);
+        setSmtpHost(data.config.smtpHost || '');
+        setSmtpPort(data.config.smtpPort ?? 587);
+        setSmtpUser(data.config.smtpUser || '');
+        setSmtpPass(data.config.smtpPass || '');
+        setSmtpFrom(data.config.smtpFrom || '');
+        setAlertEmailAddress(data.config.alertEmailAddress || '');
+        setEmailEnabled(Boolean(data.config.emailEnabled));
       }
     } catch (err) {
       if (onShowToast) onShowToast(err.message, 'error');
@@ -86,7 +108,14 @@ export default function AlertsView({ token, onShowToast }) {
         cpu_threshold_percent: cpuThresholdPercent,
         ram_threshold_percent: ramThresholdPercent,
         alert_on_security_violations: alertOnSecurityViolations,
-        alert_on_backup_failures: alertOnBackupFailures
+        alert_on_backup_failures: alertOnBackupFailures,
+        smtp_host: smtpHost,
+        smtp_port: smtpPort,
+        smtp_user: smtpUser,
+        smtp_pass: smtpPass,
+        smtp_from: smtpFrom,
+        alert_email_address: alertEmailAddress,
+        email_enabled: emailEnabled
       };
 
       const res = await fetch('/api/alerts/config', {
@@ -108,6 +137,7 @@ export default function AlertsView({ token, onShowToast }) {
       if (data.config) {
         setDiscordWebhookUrl(data.config.discordWebhookUrl || '');
         setTelegramBotToken(data.config.telegramBotToken || '');
+        setSmtpPass(data.config.smtpPass || '');
       }
     } catch (err) {
       if (onShowToast) onShowToast(err.message, 'error');
@@ -126,7 +156,13 @@ export default function AlertsView({ token, onShowToast }) {
         body: JSON.stringify({
           discord_webhook_url: discordWebhookUrl,
           telegram_bot_token: telegramBotToken,
-          telegram_chat_id: telegramChatId
+          telegram_chat_id: telegramChatId,
+          smtp_host: smtpHost,
+          smtp_port: smtpPort,
+          smtp_user: smtpUser,
+          smtp_pass: smtpPass,
+          smtp_from: smtpFrom,
+          alert_email_address: alertEmailAddress
         })
       });
 
@@ -136,10 +172,14 @@ export default function AlertsView({ token, onShowToast }) {
       }
 
       setTestResults(data.results);
+      if (data.results?.email) {
+        setEmailTestResult(data.results.email);
+      }
 
       const dOk = data.results?.discord?.success;
       const tOk = data.results?.telegram?.success;
-      if (dOk || tOk) {
+      const eOk = data.results?.email?.success;
+      if (dOk || tOk || eOk) {
         if (onShowToast) onShowToast('Test alert dispatched successfully!', 'success');
       } else {
         if (onShowToast) onShowToast('No channels responded with success. Check credentials.', 'warning');
@@ -151,6 +191,43 @@ export default function AlertsView({ token, onShowToast }) {
     }
   };
 
+  const handleTestEmail = async () => {
+    setTestingEmail(true);
+    setEmailTestResult(null);
+    try {
+      const res = await fetch('/api/alerts/test', {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({
+          smtp_host: smtpHost,
+          smtp_port: smtpPort,
+          smtp_user: smtpUser,
+          smtp_pass: smtpPass,
+          smtp_from: smtpFrom,
+          alert_email_address: alertEmailAddress
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to test SMTP configuration.');
+      }
+
+      const emailRes = data.results?.email;
+      setEmailTestResult(emailRes);
+
+      if (emailRes?.success) {
+        if (onShowToast) onShowToast(`Test email successfully delivered to ${alertEmailAddress}!`, 'success');
+      } else {
+        if (onShowToast) onShowToast(emailRes?.error || 'Failed to deliver test email.', 'error');
+      }
+    } catch (err) {
+      if (onShowToast) onShowToast(err.message, 'error');
+    } finally {
+      setTestingEmail(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[50vh] space-y-3">
@@ -159,6 +236,8 @@ export default function AlertsView({ token, onShowToast }) {
       </div>
     );
   }
+
+  const hasAnyChannel = discordWebhookUrl || telegramBotToken || (smtpHost && alertEmailAddress);
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto pb-16">
@@ -187,7 +266,7 @@ export default function AlertsView({ token, onShowToast }) {
                 </span>
               </div>
               <p className="text-xs text-zinc-400 mt-1 max-w-2xl leading-relaxed">
-                Interception worker that posts incident alerts and hardware threshold spikes to Discord & Telegram via lightweight native Node.js dispatch.
+                Interception worker that posts incident alerts and hardware threshold spikes to Discord, Telegram, and Email (SMTP) via lightweight native Node.js dispatch.
               </p>
             </div>
           </div>
@@ -196,9 +275,9 @@ export default function AlertsView({ token, onShowToast }) {
             <button
               type="button"
               onClick={handleTest}
-              disabled={testing || saving || (!discordWebhookUrl && !telegramBotToken)}
+              disabled={testing || saving || !hasAnyChannel}
               className="px-4 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 text-zinc-200 text-xs font-semibold border border-zinc-700 transition-all flex items-center gap-2 shadow-xs"
-              title="Send a sample alert to test configured webhooks"
+              title="Send a sample alert to test configured notification channels"
             >
               {testing ? <RefreshCw className="w-4 h-4 animate-spin text-purple-400" /> : <Send className="w-4 h-4 text-purple-400" />}
               <span>Send Test Alert</span>
@@ -238,6 +317,16 @@ export default function AlertsView({ token, onShowToast }) {
               }`}>
                 {testResults.telegram.success ? <CheckCircle2 className="w-3.5 h-3.5" /> : <XCircle className="w-3.5 h-3.5" />}
                 Telegram: {testResults.telegram.success ? 'Delivered' : testResults.telegram.error || 'Failed'}
+              </span>
+            )}
+            {testResults.email?.tested && (
+              <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border font-mono ${
+                testResults.email.success
+                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                  : 'bg-rose-500/10 text-rose-400 border-rose-500/20'
+              }`}>
+                {testResults.email.success ? <CheckCircle2 className="w-3.5 h-3.5" /> : <XCircle className="w-3.5 h-3.5" />}
+                Email: {testResults.email.success ? 'Delivered' : testResults.email.error || 'Failed'}
               </span>
             )}
           </div>
@@ -399,6 +488,174 @@ export default function AlertsView({ token, onShowToast }) {
           <div className="p-3 rounded-xl bg-zinc-950/60 border border-zinc-800/80 text-[11px] text-zinc-400 flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-sky-500 shrink-0" />
             <span>Sends direct alerts using Telegram API with native MarkdownV2 formatting.</span>
+          </div>
+        </div>
+
+        {/* Email (SMTP) Configuration Card */}
+        <div className="lg:col-span-2 p-5 rounded-2xl bg-zinc-900/80 border border-zinc-800 space-y-5 shadow-sm">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-zinc-800/60">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
+                <Mail className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-semibold text-zinc-100">Email (SMTP) Alerting</h3>
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-medium border flex items-center gap-1 ${
+                    emailEnabled
+                      ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                      : 'bg-zinc-800 text-zinc-400 border-zinc-700'
+                  }`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${emailEnabled ? 'bg-emerald-400 animate-pulse' : 'bg-zinc-500'}`} />
+                    {emailEnabled ? 'Enabled' : 'Disabled'}
+                  </span>
+                </div>
+                <p className="text-[11px] text-zinc-400">Direct RFC 5321 dispatch to system administrators with HTML color styling</p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              {emailTestResult && (
+                <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border font-mono text-xs ${
+                  emailTestResult.success
+                    ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                    : 'bg-rose-500/10 text-rose-400 border-rose-500/20'
+                }`}>
+                  {emailTestResult.success ? <CheckCircle2 className="w-3.5 h-3.5" /> : <XCircle className="w-3.5 h-3.5" />}
+                  <span>{emailTestResult.success ? 'SMTP Verified' : (emailTestResult.error || 'Failed')}</span>
+                </span>
+              )}
+
+              <button
+                type="button"
+                onClick={handleTestEmail}
+                disabled={testingEmail || saving || !smtpHost || !alertEmailAddress}
+                className="px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 text-zinc-200 text-xs font-semibold border border-zinc-700 transition-all flex items-center gap-1.5 shadow-xs"
+                title="Send a sample email to verify SMTP credentials"
+              >
+                {testingEmail ? <RefreshCw className="w-3.5 h-3.5 animate-spin text-emerald-400" /> : <Send className="w-3.5 h-3.5 text-emerald-400" />}
+                <span>Test Email</span>
+              </button>
+
+              <div className="flex items-center gap-2 pl-2 border-l border-zinc-800">
+                <span className="text-xs text-zinc-300 font-medium">Enable</span>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={emailEnabled}
+                    onChange={(e) => setEmailEnabled(e.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <div className="w-9 h-5 bg-zinc-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-zinc-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* SMTP Host */}
+            <div className="md:col-span-2">
+              <label className="block text-xs font-semibold text-zinc-300 mb-1.5 flex items-center gap-1.5">
+                <Server className="w-3.5 h-3.5 text-zinc-400" />
+                <span>SMTP Host / Server</span>
+              </label>
+              <input
+                type="text"
+                value={smtpHost}
+                onChange={(e) => setSmtpHost(e.target.value)}
+                placeholder="e.g. smtp.gmail.com, mail.example.com, smtp.sendgrid.net"
+                className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 focus:border-emerald-500 focus:outline-none text-xs font-mono text-zinc-200 placeholder-zinc-600 transition-colors"
+              />
+            </div>
+
+            {/* SMTP Port */}
+            <div>
+              <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
+                Port
+              </label>
+              <input
+                type="number"
+                value={smtpPort}
+                onChange={(e) => setSmtpPort(parseInt(e.target.value, 10) || 587)}
+                placeholder="587"
+                className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 focus:border-emerald-500 focus:outline-none text-xs font-mono text-zinc-200 placeholder-zinc-600 transition-colors"
+              />
+              <p className="text-[10px] text-zinc-500 mt-1">587 (STARTTLS), 465 (SSL), or 25</p>
+            </div>
+
+            {/* SMTP Username */}
+            <div>
+              <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
+                SMTP Username
+              </label>
+              <input
+                type="text"
+                value={smtpUser}
+                onChange={(e) => setSmtpUser(e.target.value)}
+                placeholder="username@domain.com or API Key"
+                className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 focus:border-emerald-500 focus:outline-none text-xs font-mono text-zinc-200 placeholder-zinc-600 transition-colors"
+              />
+            </div>
+
+            {/* SMTP Password */}
+            <div>
+              <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
+                SMTP Password / Secret
+              </label>
+              <div className="relative">
+                <input
+                  type={showSmtpPass ? 'text' : 'password'}
+                  value={smtpPass}
+                  onChange={(e) => setSmtpPass(e.target.value)}
+                  placeholder="••••••••"
+                  className="w-full px-3.5 py-2.5 pr-10 rounded-xl bg-zinc-950 border border-zinc-800 focus:border-emerald-500 focus:outline-none text-xs font-mono text-zinc-200 placeholder-zinc-600 transition-colors"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowSmtpPass(!showSmtpPass)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 p-1"
+                >
+                  {showSmtpPass ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                </button>
+              </div>
+            </div>
+
+            {/* From Address */}
+            <div>
+              <label className="block text-xs font-semibold text-zinc-300 mb-1.5 flex items-center gap-1.5">
+                <AtSign className="w-3.5 h-3.5 text-zinc-400" />
+                <span>From Address</span>
+              </label>
+              <input
+                type="text"
+                value={smtpFrom}
+                onChange={(e) => setSmtpFrom(e.target.value)}
+                placeholder='"NexusControl" <alerts@domain.com>'
+                className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 focus:border-emerald-500 focus:outline-none text-xs font-mono text-zinc-200 placeholder-zinc-600 transition-colors"
+              />
+            </div>
+
+            {/* Alert Email Address */}
+            <div className="md:col-span-3">
+              <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
+                Target Alert Email Address (Recipient)
+              </label>
+              <input
+                type="email"
+                value={alertEmailAddress}
+                onChange={(e) => setAlertEmailAddress(e.target.value)}
+                placeholder="admin@domain.com, oncall@domain.com"
+                className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 focus:border-emerald-500 focus:outline-none text-xs font-mono text-zinc-200 placeholder-zinc-600 transition-colors"
+              />
+              <p className="text-[10px] text-zinc-500 mt-1">
+                Recipient address where critical alerts and threshold notifications will be delivered.
+              </p>
+            </div>
+          </div>
+
+          <div className="p-3 rounded-xl bg-zinc-950/60 border border-zinc-800/80 text-[11px] text-zinc-400 flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+            <span>Port 465 automatically engages SSL/TLS; port 587 uses STARTTLS. Connection timeouts protect the backend from hanging mail servers.</span>
           </div>
         </div>
       </div>

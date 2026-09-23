@@ -1,5 +1,6 @@
 const path = require('node:path');
 const { DatabaseSync } = require('node:sqlite');
+const nodemailer = require('nodemailer');
 
 const dbPath = process.env.METRICS_DB_PATH || path.join(__dirname, 'metrics.db');
 let db = new DatabaseSync(dbPath);
@@ -26,9 +27,33 @@ function initDb(databaseInstance) {
       ram_threshold_percent INTEGER DEFAULT 90,
       alert_on_security_violations INTEGER DEFAULT 1,
       alert_on_backup_failures INTEGER DEFAULT 1,
-      active INTEGER DEFAULT 0
+      active INTEGER DEFAULT 0,
+      smtp_host TEXT,
+      smtp_port INTEGER DEFAULT 587,
+      smtp_user TEXT,
+      smtp_pass TEXT,
+      smtp_from TEXT,
+      alert_email_address TEXT,
+      email_enabled INTEGER DEFAULT 0
     );
   `);
+
+  // Migration for existing tables without SMTP columns
+  const migrationQueries = [
+    'ALTER TABLE alerts_config ADD COLUMN smtp_host TEXT;',
+    'ALTER TABLE alerts_config ADD COLUMN smtp_port INTEGER DEFAULT 587;',
+    'ALTER TABLE alerts_config ADD COLUMN smtp_user TEXT;',
+    'ALTER TABLE alerts_config ADD COLUMN smtp_pass TEXT;',
+    'ALTER TABLE alerts_config ADD COLUMN smtp_from TEXT;',
+    'ALTER TABLE alerts_config ADD COLUMN alert_email_address TEXT;',
+    'ALTER TABLE alerts_config ADD COLUMN email_enabled INTEGER DEFAULT 0;'
+  ];
+
+  for (const sql of migrationQueries) {
+    try {
+      db.exec(sql);
+    } catch {}
+  }
 
   selectConfigStmt = db.prepare(`
     SELECT id,
@@ -47,7 +72,18 @@ function initDb(databaseInstance) {
            ram_threshold_percent,
            alert_on_security_violations,
            alert_on_backup_failures,
-           active
+           active,
+           smtp_host,
+           smtp_port,
+           smtp_user,
+           CASE
+             WHEN length(smtp_pass) > 4 THEN '••••••••' || substr(smtp_pass, -4)
+             WHEN length(smtp_pass) > 0 THEN '••••••••'
+             ELSE ''
+           END as smtp_pass_masked,
+           smtp_from,
+           alert_email_address,
+           email_enabled
     FROM alerts_config
     WHERE id = 'default_alerts'
     LIMIT 1
@@ -61,8 +97,10 @@ function initDb(databaseInstance) {
     INSERT INTO alerts_config (
       id, discord_webhook_url, telegram_bot_token, telegram_chat_id,
       cpu_threshold_percent, ram_threshold_percent,
-      alert_on_security_violations, alert_on_backup_failures, active
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      alert_on_security_violations, alert_on_backup_failures, active,
+      smtp_host, smtp_port, smtp_user, smtp_pass, smtp_from,
+      alert_email_address, email_enabled
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       discord_webhook_url = excluded.discord_webhook_url,
       telegram_bot_token = excluded.telegram_bot_token,
@@ -71,7 +109,14 @@ function initDb(databaseInstance) {
       ram_threshold_percent = excluded.ram_threshold_percent,
       alert_on_security_violations = excluded.alert_on_security_violations,
       alert_on_backup_failures = excluded.alert_on_backup_failures,
-      active = excluded.active
+      active = excluded.active,
+      smtp_host = excluded.smtp_host,
+      smtp_port = excluded.smtp_port,
+      smtp_user = excluded.smtp_user,
+      smtp_pass = excluded.smtp_pass,
+      smtp_from = excluded.smtp_from,
+      alert_email_address = excluded.alert_email_address,
+      email_enabled = excluded.email_enabled
   `);
 }
 
@@ -104,6 +149,26 @@ function getDiscordColor(level) {
     case 'info':
     default:
       return 3900150;  // #3B82F6 Sky / Blue
+  }
+}
+
+/**
+ * Map alert level to CSS color hex string for HTML email
+ */
+function getSeverityColorHex(level) {
+  switch (level?.toLowerCase()) {
+    case 'error':
+    case 'danger':
+    case 'security':
+      return '#EF4444'; // Red
+    case 'warning':
+    case 'warn':
+      return '#F59E0B'; // Amber
+    case 'success':
+      return '#10B981'; // Green
+    case 'info':
+    default:
+      return '#3B82F6'; // Blue
   }
 }
 
@@ -195,6 +260,71 @@ async function dispatchTelegram(botToken, chatId, { title, message, level = 'inf
 }
 
 /**
+ * Dispatch message to email address via SMTP using nodemailer
+ */
+async function dispatchEmail(smtpConfig, { title, message, level = 'info' }) {
+  const {
+    host,
+    port = 587,
+    user,
+    pass,
+    from,
+    to
+  } = smtpConfig || {};
+
+  if (!host || typeof host !== 'string') {
+    throw new Error('SMTP Host is required for email alerting.');
+  }
+  if (!to || typeof to !== 'string') {
+    throw new Error('Target alert email address is required.');
+  }
+
+  const numericPort = parseInt(port, 10) || 587;
+  const isSecure = numericPort === 465;
+
+  const transporter = nodemailer.createTransport({
+    host: host.trim(),
+    port: numericPort,
+    secure: isSecure,
+    auth: (user && pass) ? { user: user.trim(), pass: pass.trim() } : undefined,
+    tls: {
+      rejectUnauthorized: false
+    },
+    connectionTimeout: 5000,
+    greetingTimeout: 5000,
+    socketTimeout: 8000
+  });
+
+  const subject = `[NexusControl] ${title || 'System Alert'}`;
+  const headerColor = getSeverityColorHex(level);
+  const cleanFrom = from?.trim() || (user ? `NexusControl <${user.trim()}>` : 'NexusControl <noreply@xus.me>');
+
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e4e4e7; border-radius: 12px; overflow: hidden; background: #ffffff;">
+      <div style="background-color: ${headerColor}; padding: 18px 24px; color: #ffffff;">
+        <h2 style="margin: 0; font-size: 18px; font-weight: 600;">${title || 'NexusControl Alert'}</h2>
+      </div>
+      <div style="padding: 24px; color: #18181b; font-size: 14px; line-height: 1.6;">
+        <div style="margin-top: 0; white-space: pre-wrap; font-family: monospace, monospace; background: #f8fafc; padding: 14px; border-radius: 8px; border: 1px solid #e2e8f0; font-size: 13px;">${message || ''}</div>
+        <div style="margin-top: 24px; padding-top: 16px; border-top: 1px solid #f4f4f5; font-size: 12px; color: #71717a;">
+          Alert generated by <strong>NexusControl</strong> Operations Daemon • ${new Date().toUTCString()}
+        </div>
+      </div>
+    </div>
+  `;
+
+  await transporter.sendMail({
+    from: cleanFrom,
+    to: to.trim(),
+    subject,
+    text: `${title}\n\n${message}\n\nNexusControl Operations Daemon`,
+    html
+  });
+
+  return true;
+}
+
+/**
  * Get masked alerts configuration for client consumption
  */
 function getAlertsConfig() {
@@ -209,12 +339,19 @@ function getAlertsConfig() {
       ramThresholdPercent: 90,
       alertOnSecurityViolations: true,
       alertOnBackupFailures: true,
-      active: false
+      active: false,
+      smtpHost: '',
+      smtpPort: 587,
+      smtpUser: '',
+      smtpPass: '',
+      smtpFrom: '',
+      alertEmailAddress: '',
+      emailEnabled: false
     };
   }
 
   return {
-    configured: Boolean(row.discord_webhook_url_masked || row.telegram_bot_token_masked),
+    configured: Boolean(row.discord_webhook_url_masked || row.telegram_bot_token_masked || row.smtp_host),
     discordWebhookUrl: row.discord_webhook_url_masked || '',
     telegramBotToken: row.telegram_bot_token_masked || '',
     telegramChatId: row.telegram_chat_id || '',
@@ -222,7 +359,14 @@ function getAlertsConfig() {
     ramThresholdPercent: row.ram_threshold_percent ?? 90,
     alertOnSecurityViolations: Boolean(row.alert_on_security_violations),
     alertOnBackupFailures: Boolean(row.alert_on_backup_failures),
-    active: Boolean(row.active)
+    active: Boolean(row.active),
+    smtpHost: row.smtp_host || '',
+    smtpPort: row.smtp_port ?? 587,
+    smtpUser: row.smtp_user || '',
+    smtpPass: row.smtp_pass_masked || '',
+    smtpFrom: row.smtp_from || '',
+    alertEmailAddress: row.alert_email_address || '',
+    emailEnabled: Boolean(row.email_enabled)
   };
 }
 
@@ -244,7 +388,14 @@ function saveAlertsConfig({
   ramThresholdPercent = 90,
   alertOnSecurityViolations = true,
   alertOnBackupFailures = true,
-  active = false
+  active = false,
+  smtpHost,
+  smtpPort = 587,
+  smtpUser,
+  smtpPass,
+  smtpFrom,
+  alertEmailAddress,
+  emailEnabled = false
 }) {
   const existing = selectRawConfigStmt.get();
 
@@ -265,6 +416,20 @@ function saveAlertsConfig({
   const numericBackupFailures = alertOnBackupFailures ? 1 : 0;
   const numericActive = active ? 1 : 0;
 
+  // SMTP Fields
+  const finalSmtpHost = smtpHost !== undefined ? String(smtpHost).trim() : (existing?.smtp_host || '');
+  const finalSmtpPort = parseInt(smtpPort, 10) || 587;
+  const finalSmtpUser = smtpUser !== undefined ? String(smtpUser).trim() : (existing?.smtp_user || '');
+
+  let finalSmtpPass = smtpPass !== undefined ? String(smtpPass).trim() : (existing?.smtp_pass || '');
+  if (finalSmtpPass.includes('••••')) {
+    finalSmtpPass = existing?.smtp_pass || '';
+  }
+
+  const finalSmtpFrom = smtpFrom !== undefined ? String(smtpFrom).trim() : (existing?.smtp_from || '');
+  const finalAlertEmail = alertEmailAddress !== undefined ? String(alertEmailAddress).trim() : (existing?.alert_email_address || '');
+  const numericEmailEnabled = emailEnabled ? 1 : 0;
+
   upsertConfigStmt.run(
     'default_alerts',
     finalDiscordUrl,
@@ -274,14 +439,21 @@ function saveAlertsConfig({
     ramThreshold,
     numericSecViolations,
     numericBackupFailures,
-    numericActive
+    numericActive,
+    finalSmtpHost,
+    finalSmtpPort,
+    finalSmtpUser,
+    finalSmtpPass,
+    finalSmtpFrom,
+    finalAlertEmail,
+    numericEmailEnabled
   );
 
   return getAlertsConfig();
 }
 
 /**
- * Send an alert asynchronously across configured channels
+ * Send an alert asynchronously across configured channels (Discord, Telegram, Email)
  * Safe fire-and-forget wrapper that never throws
  */
 async function sendAlert(title, message, level = 'info', category = 'system') {
@@ -300,6 +472,8 @@ async function sendAlert(title, message, level = 'info', category = 'system') {
     }
 
     const tasks = [];
+
+    // Discord Dispatcher
     if (config.discord_webhook_url && config.discord_webhook_url.trim()) {
       tasks.push(
         dispatchDiscord(config.discord_webhook_url, { title, message, level })
@@ -307,10 +481,26 @@ async function sendAlert(title, message, level = 'info', category = 'system') {
       );
     }
 
+    // Telegram Dispatcher
     if (config.telegram_bot_token && config.telegram_chat_id) {
       tasks.push(
         dispatchTelegram(config.telegram_bot_token, config.telegram_chat_id, { title, message, level })
           .catch((err) => console.warn('[AlertEngine] Telegram dispatch error:', err.message))
+      );
+    }
+
+    // Email Dispatcher
+    if (config.email_enabled && config.smtp_host && config.alert_email_address) {
+      tasks.push(
+        dispatchEmail({
+          host: config.smtp_host,
+          port: config.smtp_port,
+          user: config.smtp_user,
+          pass: config.smtp_pass,
+          from: config.smtp_from,
+          to: config.alert_email_address
+        }, { title, message, level })
+          .catch((err) => console.warn('[AlertEngine] Email dispatch error:', err.message))
       );
     }
 
@@ -323,10 +513,11 @@ async function sendAlert(title, message, level = 'info', category = 'system') {
 }
 
 /**
- * Test alert credentials on demand
+ * Test alert credentials on demand (Discord, Telegram, and Email)
  */
 async function testAlerts(testConfig = {}) {
   const existing = getRawAlertsConfig() || {};
+
   let discordUrl = testConfig.discordWebhookUrl ?? existing.discord_webhook_url ?? '';
   if (discordUrl.includes('••••')) discordUrl = existing.discord_webhook_url || '';
 
@@ -335,13 +526,25 @@ async function testAlerts(testConfig = {}) {
 
   let tgChatId = testConfig.telegramChatId ?? existing.telegram_chat_id ?? '';
 
+  // Email Config
+  const smtpHost = testConfig.smtpHost ?? existing.smtp_host ?? '';
+  const smtpPort = testConfig.smtpPort ?? existing.smtp_port ?? 587;
+  const smtpUser = testConfig.smtpUser ?? existing.smtp_user ?? '';
+
+  let smtpPass = testConfig.smtpPass ?? existing.smtp_pass ?? '';
+  if (smtpPass.includes('••••')) smtpPass = existing.smtp_pass || '';
+
+  const smtpFrom = testConfig.smtpFrom ?? existing.smtp_from ?? '';
+  const alertEmail = testConfig.alertEmailAddress ?? existing.alert_email_address ?? '';
+
   const results = {
     discord: { tested: false, success: false },
-    telegram: { tested: false, success: false }
+    telegram: { tested: false, success: false },
+    email: { tested: false, success: false }
   };
 
   const title = '🔔 NexusControl Test Alert';
-  const message = 'Webhook connectivity test successful! Real-time alerts are operational on your VPS.';
+  const message = 'Connectivity test successful! Real-time alerts are operational on your VPS.';
 
   if (discordUrl && discordUrl.trim()) {
     results.discord.tested = true;
@@ -365,6 +568,24 @@ async function testAlerts(testConfig = {}) {
     }
   }
 
+  if (smtpHost && alertEmail) {
+    results.email.tested = true;
+    try {
+      await dispatchEmail({
+        host: smtpHost,
+        port: smtpPort,
+        user: smtpUser,
+        pass: smtpPass,
+        from: smtpFrom,
+        to: alertEmail
+      }, { title, message, level: 'info' });
+      results.email.success = true;
+    } catch (err) {
+      results.email.success = false;
+      results.email.error = err.message;
+    }
+  }
+
   return results;
 }
 
@@ -372,8 +593,10 @@ module.exports = {
   initDb,
   escapeMarkdownV2,
   getDiscordColor,
+  getSeverityColorHex,
   dispatchDiscord,
   dispatchTelegram,
+  dispatchEmail,
   getAlertsConfig,
   getRawAlertsConfig,
   saveAlertsConfig,

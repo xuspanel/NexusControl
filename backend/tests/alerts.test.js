@@ -368,4 +368,157 @@ describe('Webhook Alerting Worker Test Suite', () => {
       expect(res.status).toBe(401);
     });
   });
+
+  describe('4. Email (SMTP) Alerting & Password Masking', () => {
+    test('getSeverityColorHex maps levels to appropriate HTML hex color codes', () => {
+      expect(alertEngine.getSeverityColorHex('error')).toBe('#EF4444');
+      expect(alertEngine.getSeverityColorHex('danger')).toBe('#EF4444');
+      expect(alertEngine.getSeverityColorHex('security')).toBe('#EF4444');
+      expect(alertEngine.getSeverityColorHex('warning')).toBe('#F59E0B');
+      expect(alertEngine.getSeverityColorHex('warn')).toBe('#F59E0B');
+      expect(alertEngine.getSeverityColorHex('success')).toBe('#10B981');
+      expect(alertEngine.getSeverityColorHex('info')).toBe('#3B82F6');
+      expect(alertEngine.getSeverityColorHex('other')).toBe('#3B82F6');
+    });
+
+    test('getAlertsConfig masks smtp_pass properly', () => {
+      alertEngine.saveAlertsConfig({
+        smtpHost: 'smtp.example.com',
+        smtpPort: 587,
+        smtpUser: 'alerts@example.com',
+        smtpPass: 'supersecretpassword123',
+        smtpFrom: 'alerts@example.com',
+        alertEmailAddress: 'admin@example.com',
+        emailEnabled: true
+      });
+
+      const config = alertEngine.getAlertsConfig();
+      expect(config.smtpHost).toBe('smtp.example.com');
+      expect(config.smtpPort).toBe(587);
+      expect(config.smtpUser).toBe('alerts@example.com');
+      expect(config.smtpPass).toBe('••••••••d123'); // last 4 chars
+      expect(config.smtpPass).not.toContain('supersecretpassword');
+      expect(config.emailEnabled).toBe(true);
+    });
+
+    test('saveAlertsConfig preserves real smtp_pass when masked password is submitted', () => {
+      // 1. Initial save with real password
+      alertEngine.saveAlertsConfig({
+        smtpHost: 'smtp.mail.com',
+        smtpPort: 465,
+        smtpUser: 'user@mail.com',
+        smtpPass: 'myActualSecretPass99',
+        smtpFrom: 'alerts@mail.com',
+        alertEmailAddress: 'ops@mail.com',
+        emailEnabled: true
+      });
+
+      // 2. Client submits update with masked password '••••••••ss99'
+      alertEngine.saveAlertsConfig({
+        smtpHost: 'smtp.mail.com',
+        smtpPort: 465,
+        smtpUser: 'user@mail.com',
+        smtpPass: '••••••••ss99',
+        smtpFrom: 'alerts@mail.com',
+        alertEmailAddress: 'ops@mail.com',
+        emailEnabled: true
+      });
+
+      // 3. Raw SQLite secret must remain unmodified
+      const raw = alertEngine.getRawAlertsConfig();
+      expect(raw.smtp_pass).toBe('myActualSecretPass99');
+    });
+
+    test('dispatchEmail creates nodemailer transport and sends HTML email', async () => {
+      const nodemailer = require('nodemailer');
+      const sendMailMock = jest.fn().mockResolvedValue({ messageId: '<test-email-msg-id>' });
+      const createTransportSpy = jest.spyOn(nodemailer, 'createTransport').mockReturnValue({
+        sendMail: sendMailMock
+      });
+
+      const result = await alertEngine.dispatchEmail({
+        host: 'smtp.test.com',
+        port: 587,
+        user: 'testuser',
+        pass: 'testpass',
+        from: 'alerts@test.com',
+        to: 'admin@test.com'
+      }, {
+        title: '🚨 Intrusion Alert',
+        message: 'Repeated authentication failures detected',
+        level: 'security'
+      });
+
+      expect(result).toBe(true);
+      expect(createTransportSpy).toHaveBeenCalledWith(expect.objectContaining({
+        host: 'smtp.test.com',
+        port: 587,
+        secure: false,
+        auth: { user: 'testuser', pass: 'testpass' }
+      }));
+      expect(sendMailMock).toHaveBeenCalledWith(expect.objectContaining({
+        from: 'alerts@test.com',
+        to: 'admin@test.com',
+        subject: expect.stringContaining('🚨 Intrusion Alert'),
+        html: expect.stringContaining('#EF4444')
+      }));
+
+      createTransportSpy.mockRestore();
+    });
+
+    test('sendAlert dispatches to email when emailEnabled is active', async () => {
+      const nodemailer = require('nodemailer');
+      const sendMailMock = jest.fn().mockResolvedValue({ messageId: '<test-email-msg-id>' });
+      const createTransportSpy = jest.spyOn(nodemailer, 'createTransport').mockReturnValue({
+        sendMail: sendMailMock
+      });
+
+      alertEngine.saveAlertsConfig({
+        active: true,
+        emailEnabled: true,
+        smtpHost: 'smtp.company.com',
+        smtpPort: 587,
+        smtpUser: 'company-alerts',
+        smtpPass: 'comp-secret',
+        smtpFrom: 'alerts@company.com',
+        alertEmailAddress: 'security@company.com',
+        alertOnSecurityViolations: true
+      });
+
+      const res = await alertEngine.sendAlert('Security Event', 'Exploit attempt', 'error', 'security');
+      expect(res.sent).toBe(true);
+      expect(sendMailMock).toHaveBeenCalled();
+
+      createTransportSpy.mockRestore();
+    });
+
+    test('POST /api/alerts/test tests email dispatch when SMTP credentials provided', async () => {
+      const nodemailer = require('nodemailer');
+      const sendMailMock = jest.fn().mockResolvedValue({ messageId: '<test-email-msg-id>' });
+      const createTransportSpy = jest.spyOn(nodemailer, 'createTransport').mockReturnValue({
+        sendMail: sendMailMock
+      });
+
+      const res = await request(app)
+        .post('/api/alerts/test')
+        .set('Authorization', 'Bearer test-token')
+        .set('x-test-role', 'superadmin')
+        .send({
+          smtp_host: 'smtp.testdomain.com',
+          smtp_port: 587,
+          smtp_user: 'mailer',
+          smtp_pass: 'mailerpass',
+          smtp_from: 'mailer@testdomain.com',
+          alert_email_address: 'admin@testdomain.com'
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.results.email.tested).toBe(true);
+      expect(res.body.results.email.success).toBe(true);
+      expect(sendMailMock).toHaveBeenCalled();
+
+      createTransportSpy.mockRestore();
+    });
+  });
 });

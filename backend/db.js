@@ -65,6 +65,19 @@ function initDb(databaseInstance) {
     db.exec(`ALTER TABLE users ADD COLUMN granular_policies TEXT;`);
   } catch {}
 
+  const smtpColumns = [
+    'ALTER TABLE alerts_config ADD COLUMN smtp_host TEXT;',
+    'ALTER TABLE alerts_config ADD COLUMN smtp_port INTEGER DEFAULT 587;',
+    'ALTER TABLE alerts_config ADD COLUMN smtp_user TEXT;',
+    'ALTER TABLE alerts_config ADD COLUMN smtp_pass TEXT;',
+    'ALTER TABLE alerts_config ADD COLUMN smtp_from TEXT;',
+    'ALTER TABLE alerts_config ADD COLUMN alert_email_address TEXT;',
+    'ALTER TABLE alerts_config ADD COLUMN email_enabled INTEGER DEFAULT 0;'
+  ];
+  for (const sql of smtpColumns) {
+    try { db.exec(sql); } catch {}
+  }
+
   selectUserByUsernameStmt = db.prepare(`
     SELECT * FROM users WHERE username = ? COLLATE NOCASE
   `);

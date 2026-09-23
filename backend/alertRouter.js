@@ -32,6 +32,15 @@ router.post('/config', (req, res) => {
   const alertOnBackupFailures = body.alert_on_backup_failures ?? body.alertOnBackupFailures ?? true;
   const active = body.active ?? false;
 
+  // SMTP Fields
+  const smtpHost = body.smtp_host ?? body.smtpHost;
+  const smtpPort = body.smtp_port ?? body.smtpPort ?? 587;
+  const smtpUser = body.smtp_user ?? body.smtpUser;
+  const smtpPass = body.smtp_pass ?? body.smtpPass;
+  const smtpFrom = body.smtp_from ?? body.smtpFrom;
+  const alertEmailAddress = body.alert_email_address ?? body.alertEmailAddress;
+  const emailEnabled = body.email_enabled ?? body.emailEnabled ?? false;
+
   try {
     const updated = alertEngine.saveAlertsConfig({
       discordWebhookUrl,
@@ -41,7 +50,14 @@ router.post('/config', (req, res) => {
       ramThresholdPercent,
       alertOnSecurityViolations,
       alertOnBackupFailures,
-      active
+      active,
+      smtpHost,
+      smtpPort,
+      smtpUser,
+      smtpPass,
+      smtpFrom,
+      alertEmailAddress,
+      emailEnabled
     });
 
     // Cryptographic Tamper-Evident Audit Logging
@@ -58,7 +74,9 @@ router.post('/config', (req, res) => {
         alertOnSecurityViolations: updated.alertOnSecurityViolations,
         alertOnBackupFailures: updated.alertOnBackupFailures,
         discordConfigured: Boolean(updated.discordWebhookUrl),
-        telegramConfigured: Boolean(updated.telegramBotToken && updated.telegramChatId)
+        telegramConfigured: Boolean(updated.telegramBotToken && updated.telegramChatId),
+        emailConfigured: Boolean(updated.smtpHost && updated.alertEmailAddress),
+        emailEnabled: Boolean(updated.emailEnabled)
       }
     });
 
@@ -70,14 +88,20 @@ router.post('/config', (req, res) => {
 
 /**
  * POST /api/alerts/test
- * Test webhook connectivity to Discord and Telegram
+ * Test webhook and email connectivity
  */
 router.post('/test', async (req, res) => {
   const body = req.body || {};
   const testConfig = {
     discordWebhookUrl: body.discord_webhook_url ?? body.discordWebhookUrl,
     telegramBotToken: body.telegram_bot_token ?? body.telegramBotToken,
-    telegramChatId: body.telegram_chat_id ?? body.telegramChatId
+    telegramChatId: body.telegram_chat_id ?? body.telegramChatId,
+    smtpHost: body.smtp_host ?? body.smtpHost,
+    smtpPort: body.smtp_port ?? body.smtpPort,
+    smtpUser: body.smtp_user ?? body.smtpUser,
+    smtpPass: body.smtp_pass ?? body.smtpPass,
+    smtpFrom: body.smtp_from ?? body.smtpFrom,
+    alertEmailAddress: body.alert_email_address ?? body.alertEmailAddress
   };
 
   try {

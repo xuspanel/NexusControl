@@ -153,12 +153,31 @@ if command -v node >/dev/null 2>&1; then
     
     if [ "$NODE_VERSION" -ge 22 ]; then
         echo "✅ Compatible Node.js environment found. Skipping NodeSource installation."
-        # Proceed with the rest of the installation
     else
-        echo "❌ ERROR: Node.js v$NODE_VERSION is too old."
+        echo "⚠️  WARNING: Node.js v$NODE_VERSION is too old."
         echo "NexusControl requires Node.js v22 or higher for native SQLite support."
-        echo "Please upgrade Node.js manually, or run this installer on a fresh VPS."
-        exit 1
+        
+        # Prompt the user for permission to upgrade
+        read -p "Do you want the installer to upgrade your server to Node.js 22 LTS now? (Note: This may affect other apps running on this server) [y/N]: " UPGRADE_CONFIRM
+        
+        case "$UPGRADE_CONFIRM" in
+            [yY][eE][sS]|[yY])
+                echo "Proceeding with Node.js 22 LTS upgrade..."
+                if [ "${OS_FAMILY}" = "debian" ]; then
+                    export DEBIAN_FRONTEND=noninteractive
+                    curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+                    apt-get install -y nodejs
+                elif [ "${OS_FAMILY}" = "rhel" ]; then
+                    curl -fsSL https://rpm.nodesource.com/setup_22.x | bash -
+                    ${PKG_MGR} install -y nodejs
+                fi
+                log_success "Upgraded to Node.js $(node -v) and npm v$(npm -v)."
+                ;;
+            *)
+                echo "❌ ERROR: Installation halted by user. NexusControl requires at least Node.js v22."
+                exit 1
+                ;;
+        esac
     fi
 else
     echo "Node.js not found. Installing Node.js 22 LTS..."

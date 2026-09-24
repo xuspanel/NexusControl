@@ -168,7 +168,7 @@ if command -v node >/dev/null 2>&1; then
         echo "NexusControl requires Node.js v22 or higher for native SQLite support."
         
         # Prompt the user for permission to upgrade
-        read -p "Do you want the installer to upgrade your server to Node.js 22 LTS now? (Note: This may affect other apps running on this server) [y/N]: " UPGRADE_CONFIRM || UPGRADE_CONFIRM=""
+        read -p "Do you want the installer to upgrade your server to Node.js 22 LTS now? (Note: This may affect other apps running on this server) [y/N]: " UPGRADE_CONFIRM < /dev/tty
         
         case "$UPGRADE_CONFIRM" in
             [yY][eE][sS]|[yY])
@@ -251,7 +251,7 @@ log_info "Phase 2: Directory Scaffolding & Security..."
 if [ -d "/opt/NexusControl" ]; then
     if [ -f "/opt/NexusControl/backend/server.js" ] && [ -f "/opt/NexusControl/update.sh" ]; then
         echo "⚠️  An existing NexusControl installation was detected at /opt/NexusControl."
-        read -p "Do you want to safely update/upgrade the existing installation? [y/N]: " UPDATE_CONFIRM || UPDATE_CONFIRM=""
+        read -p "Do you want to safely update/upgrade the existing installation? [y/N]: " UPDATE_CONFIRM < /dev/tty
         if [[ "$UPDATE_CONFIRM" =~ ^[Yy]$ ]]; then
             echo "Redirecting to the update script..."
             bash /opt/NexusControl/update.sh
@@ -262,7 +262,7 @@ if [ -d "/opt/NexusControl" ]; then
         fi
     else
         echo "⚠️  The directory /opt/NexusControl already exists, but it does NOT appear to be a valid NexusControl installation."
-        read -p "Do you want to completely WIPE this directory and perform a clean installation? [y/N]: " WIPE_CONFIRM || WIPE_CONFIRM=""
+        read -p "Do you want to completely WIPE this directory and perform a clean installation? [y/N]: " WIPE_CONFIRM < /dev/tty
         if [[ "$WIPE_CONFIRM" =~ ^[Yy]$ ]]; then
             echo "🧹 Wiping /opt/NexusControl..."
             rm -rf /opt/NexusControl
@@ -309,15 +309,22 @@ SMTP_PASS=""
 # Interactive Configuration Prompts
 echo "📝 Please configure your NexusControl environment:"
 
-read -p "Enter the Domain or Subdomain for the panel (e.g., panel.yourdomain.com): " PANEL_DOMAIN || PANEL_DOMAIN=""
-read -p "Enter the Admin Email (used for SSL and alerts): " ADMIN_EMAIL || ADMIN_EMAIL=""
-read -p "Enter the Admin Password (leave blank to auto-generate): " INPUT_ADMIN_PASSWORD || INPUT_ADMIN_PASSWORD=""
-read -p "Enter SMTP Host (leave blank to skip email alerts): " SMTP_HOST || SMTP_HOST=""
+# Force Domain input (Required)
+while [ -z "${PANEL_DOMAIN:-}" ]; do
+    read -p "Enter the Domain or Subdomain for the panel (e.g., panel.yourdomain.com): " PANEL_DOMAIN < /dev/tty
+    if [ -z "$PANEL_DOMAIN" ]; then
+        echo "❌ Domain cannot be empty. Please provide a valid domain."
+    fi
+done
+
+read -p "Enter the Admin Email (used for SSL and alerts): " ADMIN_EMAIL < /dev/tty
+read -p "Enter the Admin Password (leave blank to auto-generate): " INPUT_ADMIN_PASSWORD < /dev/tty
+read -p "Enter SMTP Host (leave blank to skip email alerts): " SMTP_HOST < /dev/tty
 
 if [ -n "$SMTP_HOST" ]; then
-    read -p "Enter SMTP Port (e.g., 587): " SMTP_PORT || SMTP_PORT=""
-    read -p "Enter SMTP User: " SMTP_USER || SMTP_USER=""
-    read -s -p "Enter SMTP Password: " SMTP_PASS || SMTP_PASS=""
+    read -p "Enter SMTP Port (e.g., 587): " SMTP_PORT < /dev/tty
+    read -p "Enter SMTP User: " SMTP_USER < /dev/tty
+    read -s -p "Enter SMTP Password: " SMTP_PASS < /dev/tty
     echo ""
 fi
 
@@ -355,10 +362,7 @@ log_info "Phase 4: Resolving Dependencies & Compiling Production Builds..."
 # Backend Dependencies
 cd "${INSTALL_DIR}/backend"
 log_info "Installing backend dependencies..."
-if command -v npm >/dev/null 2>&1; then
-  npm install-scripts approve bcrypt node-pty 2>/dev/null || true
-fi
-npm install
+npm install --omit=dev
 if [ -d "node_modules/node-pty" ]; then
   npx --no-install node-gyp rebuild --directory=node_modules/node-pty 2>/dev/null || true
 fi
@@ -421,10 +425,11 @@ rm -f /etc/nginx/conf.d/default.conf 2>/dev/null || true
 mkdir -p /etc/nginx/conf.d
 
 if [ -z "${PANEL_DOMAIN:-}" ]; then
-    PANEL_DOMAIN="localhost"
+    echo "❌ ERROR: PANEL_DOMAIN is empty. Halting Nginx configuration."
+    exit 1
 fi
 
-cat <<EOF> /etc/nginx/conf.d/${PANEL_DOMAIN}.conf
+cat <<EOF> "/etc/nginx/conf.d/${PANEL_DOMAIN}.conf"
 server {
     listen 80;
     server_name ${PANEL_DOMAIN};
@@ -479,11 +484,7 @@ echo "╔═══════════════════════�
 echo "║                  NexusControl Deployed Successfully!                        ║"
 echo "╚═════════════════════════════════════════════════════════════════════════════╝"
 echo -e "${NC}"
-if [ -n "${PANEL_DOMAIN:-}" ] && [ "${PANEL_DOMAIN}" != "localhost" ]; then
-  echo -e "  ${BOLD}Dashboard URL:${NC}       ${CYAN}https://${PANEL_DOMAIN}${NC} (or http://${PUBLIC_IP})"
-else
-  echo -e "  ${BOLD}Dashboard URL:${NC}       ${CYAN}http://${PUBLIC_IP}${NC} (or http://127.0.0.1:8787)"
-fi
+echo -e "  ${BOLD}Dashboard URL:${NC}       ${CYAN}https://${PANEL_DOMAIN}${NC} (or http://${PUBLIC_IP})"
 echo -e "  ${BOLD}Administrator:${NC}       ${YELLOW}${ADMIN_EMAIL:-admin}${NC}"
 echo -e "  ${BOLD}Initial Password:${NC}    ${PURPLE}${ADMIN_PASSWORD}${NC}"
 echo ""

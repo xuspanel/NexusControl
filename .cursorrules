@@ -1,0 +1,18 @@
+# NexusControl Agent Operating Procedures
+
+## 1. Living Documentation Rule
+Every time you implement a new feature, add a new utility script, integrate a new tool, or make a significant architectural change, you MUST perform the following steps before finalizing your commit:
+- Audit the `README.md` file.
+- Update the "Features" or "Utilities" sections to reflect the new addition.
+- For major updates or feature releases, append a standardized entry to `CHANGELOG.md` following Semantic Versioning conventions.
+- Keep the tone professional, concise, and focused on the low-memory, zero-dependency architecture.
+
+## 2. Low-Footprint Enforcement
+- Never introduce heavy third-party SDKs, ORMs, or databases (like PostgreSQL/Redis) without explicit user permission.
+- Always prefer native Node.js APIs (e.g., `node:sqlite`, `node:net`, native `fetch`, `fs.promises`, `crypto`).
+- Maintain the strict sub-50MB RAM resident footprint.
+
+## 3. Security First
+- Ensure any new endpoint is protected by `authMiddleware` and the appropriate FGAC role.
+- Log all sensitive or destructive actions to the SHA-256 audit ledger.
+- Guard against directory traversal attacks and enforce path sandboxing across all filesystem operations.

@@ -55,6 +55,7 @@ app.use(ipWhitelistMiddleware);
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: '500mb' }));
 app.use(express.urlencoded({ limit: '500mb', extended: true }));
+app.use(express.raw({ limit: '100mb' }));
 
 // 3. Brute-Force Rate Limiter for Authentication (20 attempts per 15 minutes for external IPs)
 const authLimiter = rateLimit({

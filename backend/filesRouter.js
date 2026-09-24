@@ -10,7 +10,13 @@ const tasks = require('./tasks');
 const auditLogger = require('./auditLogger');
 
 const router = express.Router();
-const uploadMem = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
+const uploadMem = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 100 * 1024 * 1024,
+    fieldSize: 100 * 1024 * 1024
+  }
+});
 
 function isPathInside(target, allowed) {
   const normTarget = path.resolve('/', target);

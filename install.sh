@@ -436,6 +436,7 @@ cat <<EOF> "/etc/nginx/conf.d/${PANEL_DOMAIN}.conf"
 server {
     listen 80;
     server_name ${PANEL_DOMAIN};
+    client_max_body_size 0;
     
     location / {
         proxy_pass http://127.0.0.1:8787;
@@ -454,6 +455,16 @@ systemctl restart nginx
 # Install Let's Encrypt SSL
 echo "🔒 Provisioning Let's Encrypt SSL for ${PANEL_DOMAIN}..."
 certbot --nginx -d "${PANEL_DOMAIN}" --non-interactive --agree-tos -m "${ADMIN_EMAIL}" --redirect || echo "⚠️  SSL provisioning failed. Please ensure DNS points to this VPS and ports 80/443 are open."
+
+# Ensure client_max_body_size 0; is explicitly present in both HTTP and HTTPS server blocks
+if [ -f "/etc/nginx/conf.d/${PANEL_DOMAIN}.conf" ]; then
+    if grep -q "443" "/etc/nginx/conf.d/${PANEL_DOMAIN}.conf"; then
+        if ! awk '/listen.*443/,/^[ \t]*}/' "/etc/nginx/conf.d/${PANEL_DOMAIN}.conf" | grep -q "client_max_body_size"; then
+            sed -i '/listen.*443/a \    client_max_body_size 0;' "/etc/nginx/conf.d/${PANEL_DOMAIN}.conf"
+            nginx -t 2>/dev/null && (systemctl reload nginx 2>/dev/null || systemctl restart nginx 2>/dev/null || true)
+        fi
+    fi
+fi
 
 # ------------------------------------------------------------------------------
 # Phase 6: Post-Install Output & Health Check

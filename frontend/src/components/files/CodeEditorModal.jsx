@@ -127,9 +127,15 @@ export default function CodeEditorModal({
           } catch {}
           throw new Error(msg);
         }
-        const text = await res.text();
-        setCurrentContent(text);
-        setInitialContent(text);
+        const data = await res.json();
+        if (data.isBinary) {
+          alert('Cannot edit binary files.');
+          if (onClose) onClose();
+          return;
+        }
+        const content = typeof data.content === 'string' ? data.content : '';
+        setCurrentContent(content);
+        setInitialContent(content);
       })
       .catch((err) => {
         console.error('Failed to load file for editing:', err);

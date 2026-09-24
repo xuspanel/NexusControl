@@ -9,14 +9,14 @@ git fetch --all
 git reset --hard origin/main
 
 echo "⚙️  Updating Backend Dependencies..."
-cd backend
-npm ci --omit=dev
+cd /opt/NexusControl/backend
+npm install --omit=dev
 
 echo "🎨 Rebuilding Frontend UI..."
-cd ../frontend
-npm ci
-npm run build
+cd /opt/NexusControl/frontend
+npm install && npm run build
 
+cd /opt/NexusControl
 echo "🔧 Running Infrastructure Migrations & Dependency Checks..."
 
 # 1. Ensure iptables is installed (Added in v1.0.1 for AlmaLinux WireGuard support)

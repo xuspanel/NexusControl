@@ -198,9 +198,9 @@ function derivePublicKey(privateKey) {
  */
 function getDefaultPublicNic() {
   try {
-    return cp.execSync("ip route show default | awk '{print $5}'", { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim() || 'eth0';
+    return cp.execSync("ip route ls default | awk '{print $5}' | head -n 1", { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim() || "$(ip route ls default | awk '{print $5}' | head -n 1)";
   } catch (e) {
-    return 'eth0';
+    return "$(ip route ls default | awk '{print $5}' | head -n 1)";
   }
 }
 
@@ -211,7 +211,7 @@ function initServerInterface() {
   ensureIpForwarding();
   const configPath = getConfigPath();
   const configDir = path.dirname(configPath);
-  const publicNic = getDefaultPublicNic();
+  const nicSubshell = "$(ip route ls default | awk '{print $5}' | head -n 1)";
 
   if (!fs.existsSync(configDir)) {
     try {
@@ -228,8 +228,8 @@ function initServerInterface() {
       `Address = ${SERVER_IP}`,
       `ListenPort = ${SERVER_PORT}`,
       `PrivateKey = ${privateKey}`,
-      `PostUp = iptables -I FORWARD 1 -i wg0 -j ACCEPT; iptables -I FORWARD 1 -o wg0 -j ACCEPT; iptables -t nat -A POSTROUTING -o ${publicNic} -j MASQUERADE; ip6tables -I FORWARD 1 -i wg0 -j ACCEPT 2>/dev/null || true`,
-      `PostDown = iptables -D FORWARD -i wg0 -j ACCEPT; iptables -D FORWARD -o wg0 -j ACCEPT; iptables -t nat -D POSTROUTING -o ${publicNic} -j MASQUERADE; ip6tables -D FORWARD -i wg0 -j ACCEPT 2>/dev/null || true`,
+      `PostUp = iptables -I FORWARD 1 -i wg0 -j ACCEPT; iptables -I FORWARD 1 -o wg0 -j ACCEPT; iptables -t nat -A POSTROUTING -o ${nicSubshell} -j MASQUERADE; ip6tables -I FORWARD 1 -i wg0 -j ACCEPT 2>/dev/null || true`,
+      `PostDown = iptables -D FORWARD -i wg0 -j ACCEPT; iptables -D FORWARD -o wg0 -j ACCEPT; iptables -t nat -D POSTROUTING -o ${nicSubshell} -j MASQUERADE; ip6tables -D FORWARD -i wg0 -j ACCEPT 2>/dev/null || true`,
       'SaveConfig = false',
       ''
     ].join('\n');
@@ -245,8 +245,8 @@ function initServerInterface() {
 
   let content = fs.readFileSync(configPath, 'utf8');
 
-  const postUpLine = `PostUp = iptables -I FORWARD 1 -i wg0 -j ACCEPT; iptables -I FORWARD 1 -o wg0 -j ACCEPT; iptables -t nat -A POSTROUTING -o ${publicNic} -j MASQUERADE; ip6tables -I FORWARD 1 -i wg0 -j ACCEPT 2>/dev/null || true`;
-  const postDownLine = `PostDown = iptables -D FORWARD -i wg0 -j ACCEPT; iptables -D FORWARD -o wg0 -j ACCEPT; iptables -t nat -D POSTROUTING -o ${publicNic} -j MASQUERADE; ip6tables -D FORWARD -i wg0 -j ACCEPT 2>/dev/null || true`;
+  const postUpLine = `PostUp = iptables -I FORWARD 1 -i wg0 -j ACCEPT; iptables -I FORWARD 1 -o wg0 -j ACCEPT; iptables -t nat -A POSTROUTING -o ${nicSubshell} -j MASQUERADE; ip6tables -I FORWARD 1 -i wg0 -j ACCEPT 2>/dev/null || true`;
+  const postDownLine = `PostDown = iptables -D FORWARD -i wg0 -j ACCEPT; iptables -D FORWARD -o wg0 -j ACCEPT; iptables -t nat -D POSTROUTING -o ${nicSubshell} -j MASQUERADE; ip6tables -D FORWARD -i wg0 -j ACCEPT 2>/dev/null || true`;
 
   // Update existing PostUp / PostDown rules or inject if missing
   if (content.includes('PostUp =') || content.includes('PostUp=')) {

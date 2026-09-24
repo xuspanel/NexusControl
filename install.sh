@@ -107,7 +107,7 @@ esac
 log_success "Normalized OS Family: ${BOLD}${OS_FAMILY^^}${NC}"
 
 # Core Dependencies Installation
-log_info "Installing core runtime packages (git, curl, nginx, certbot, zstd, wireguard)..."
+log_info "Installing core runtime packages (git, curl, nginx, certbot, zstd, wireguard, iptables)..."
 
 if [ "${OS_FAMILY}" = "debian" ]; then
   export DEBIAN_FRONTEND=noninteractive
@@ -123,6 +123,7 @@ if [ "${OS_FAMILY}" = "debian" ]; then
     zstd \
     wireguard \
     wireguard-tools \
+    iptables \
     build-essential \
     python3 \
     tar \
@@ -143,6 +144,7 @@ elif [ "${OS_FAMILY}" = "rhel" ]; then
     python3-certbot-nginx \
     zstd \
     wireguard-tools \
+    iptables \
     gcc \
     gcc-c++ \
     make \

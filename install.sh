@@ -44,7 +44,7 @@ banner() {
 banner
 
 # ------------------------------------------------------------------------------
-# 0. Root Privilege Check
+# 0. Root Privilege Check & Path Setup
 # ------------------------------------------------------------------------------
 if [ "${EUID:-$(id -u)}" -ne 0 ]; then
   log_error "This installer must be run as root (or with sudo)."
@@ -53,6 +53,12 @@ fi
 
 INSTALL_DIR="/opt/NexusControl"
 BACKUP_DIR="/opt/nexus_backups"
+
+# Safe script directory detection (handles curl | bash where BASH_SOURCE is unbound)
+SCRIPT_DIR="/opt/NexusControl"
+if [ -n "${BASH_SOURCE[0]:-}" ]; then
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || echo "/opt/NexusControl")"
+fi
 
 # ------------------------------------------------------------------------------
 # Phase 1: OS Detection & Package Management
@@ -101,7 +107,7 @@ esac
 log_success "Normalized OS Family: ${BOLD}${OS_FAMILY^^}${NC}"
 
 # Core Dependencies Installation
-log_info "Installing core runtime packages (git, curl, nginx, zstd, wireguard)..."
+log_info "Installing core runtime packages (git, curl, nginx, certbot, zstd, wireguard)..."
 
 if [ "${OS_FAMILY}" = "debian" ]; then
   export DEBIAN_FRONTEND=noninteractive
@@ -112,6 +118,8 @@ if [ "${OS_FAMILY}" = "debian" ]; then
     gnupg \
     git \
     nginx \
+    certbot \
+    python3-certbot-nginx \
     zstd \
     wireguard \
     wireguard-tools \
@@ -131,6 +139,8 @@ elif [ "${OS_FAMILY}" = "rhel" ]; then
     ca-certificates \
     git \
     nginx \
+    certbot \
+    python3-certbot-nginx \
     zstd \
     wireguard-tools \
     gcc \
@@ -158,7 +168,7 @@ if command -v node >/dev/null 2>&1; then
         echo "NexusControl requires Node.js v22 or higher for native SQLite support."
         
         # Prompt the user for permission to upgrade
-        read -p "Do you want the installer to upgrade your server to Node.js 22 LTS now? (Note: This may affect other apps running on this server) [y/N]: " UPGRADE_CONFIRM
+        read -p "Do you want the installer to upgrade your server to Node.js 22 LTS now? (Note: This may affect other apps running on this server) [y/N]: " UPGRADE_CONFIRM || UPGRADE_CONFIRM=""
         
         case "$UPGRADE_CONFIRM" in
             [yY][eE][sS]|[yY])
@@ -236,26 +246,39 @@ log_success "Docker Engine active and enabled."
 # ------------------------------------------------------------------------------
 # Phase 2: Directory Scaffolding & Security
 # ------------------------------------------------------------------------------
-log_info "Phase 2: Scaffolding Application Directories and Hardening..."
+log_info "Phase 2: Directory Scaffolding & Security..."
 
-mkdir -p "${INSTALL_DIR}"
+if [ -d "/opt/NexusControl" ]; then
+    if [ -f "/opt/NexusControl/backend/server.js" ] && [ -f "/opt/NexusControl/update.sh" ]; then
+        echo "⚠️  An existing NexusControl installation was detected at /opt/NexusControl."
+        read -p "Do you want to safely update/upgrade the existing installation? [y/N]: " UPDATE_CONFIRM || UPDATE_CONFIRM=""
+        if [[ "$UPDATE_CONFIRM" =~ ^[Yy]$ ]]; then
+            echo "Redirecting to the update script..."
+            bash /opt/NexusControl/update.sh
+            exit 0
+        else
+            echo "❌ ERROR: Installation aborted by user to prevent overwriting existing data."
+            exit 1
+        fi
+    else
+        echo "⚠️  The directory /opt/NexusControl already exists, but it does NOT appear to be a valid NexusControl installation."
+        read -p "Do you want to completely WIPE this directory and perform a clean installation? [y/N]: " WIPE_CONFIRM || WIPE_CONFIRM=""
+        if [[ "$WIPE_CONFIRM" =~ ^[Yy]$ ]]; then
+            echo "🧹 Wiping /opt/NexusControl..."
+            rm -rf /opt/NexusControl
+            git clone https://github.com/xuspanel/NexusControl.git /opt/NexusControl
+        else
+            echo "❌ ERROR: Installation aborted by user."
+            exit 1
+        fi
+    fi
+else
+    git clone https://github.com/xuspanel/NexusControl.git /opt/NexusControl
+fi
+
 mkdir -p "${INSTALL_DIR}/.trash"
 mkdir -p "${INSTALL_DIR}/.uploads"
 chmod 755 "${INSTALL_DIR}/.trash" "${INSTALL_DIR}/.uploads"
-
-# Verify or copy repository files to /opt/NexusControl
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [ "${SCRIPT_DIR}" != "${INSTALL_DIR}" ]; then
-  if [ -f "${SCRIPT_DIR}/backend/server.js" ]; then
-    log_info "Deploying project files from ${SCRIPT_DIR} to ${INSTALL_DIR}..."
-    cp -r "${SCRIPT_DIR}/." "${INSTALL_DIR}/"
-  elif [ ! -f "${INSTALL_DIR}/backend/server.js" ]; then
-    log_info "Cloning NexusControl source repository to ${INSTALL_DIR}..."
-    git clone https://github.com/NexusControl/NexusControl.git "${INSTALL_DIR}" || {
-      log_warn "Git clone fallback: ensure repository is placed in ${INSTALL_DIR}"
-    }
-  fi
-fi
 
 # Secure Backup Storage
 log_info "Initializing secure root-only backup directory at ${BACKUP_DIR}..."
@@ -271,62 +294,57 @@ sysctl -p /etc/sysctl.d/99-nexuscontrol-vpn.conf 2>/dev/null || sysctl -w net.ip
 log_success "Kernel IPv4 forwarding active."
 
 # ------------------------------------------------------------------------------
-# Phase 3: Cryptographic Environment Generation
+# Phase 3: Interactive Configuration & Dynamic Environment Generation
 # ------------------------------------------------------------------------------
-log_info "Phase 3: Generating Cryptographic Secrets and Environment..."
+log_info "Phase 3: Interactive Configuration & Dynamic Environment Generation..."
 
-ENV_FILE="${INSTALL_DIR}/backend/.env"
-GLOBAL_ENV_FILE="${INSTALL_DIR}/.env"
-ADMIN_PASSWORD=""
-IS_NEW_ENV=0
+PANEL_DOMAIN=""
+ADMIN_EMAIL=""
+INPUT_ADMIN_PASSWORD=""
+SMTP_HOST=""
+SMTP_PORT=""
+SMTP_USER=""
+SMTP_PASS=""
 
-if [ ! -f "${ENV_FILE}" ]; then
-  # Check if legacy root .env exists
-  if [ -f "${GLOBAL_ENV_FILE}" ]; then
-    log_info "Migrating configuration from existing ${GLOBAL_ENV_FILE} to ${ENV_FILE}..."
-    cp "${GLOBAL_ENV_FILE}" "${ENV_FILE}"
-    ADMIN_PASSWORD="$(grep -E '^ADMIN_PASSWORD=' "${ENV_FILE}" | cut -d'=' -f2- | tr -d '\"'\'' ' || true)"
-  fi
+# Interactive Configuration Prompts
+echo "📝 Please configure your NexusControl environment:"
+
+read -p "Enter the Domain or Subdomain for the panel (e.g., panel.yourdomain.com): " PANEL_DOMAIN || PANEL_DOMAIN=""
+read -p "Enter the Admin Email (used for SSL and alerts): " ADMIN_EMAIL || ADMIN_EMAIL=""
+read -p "Enter the Admin Password (leave blank to auto-generate): " INPUT_ADMIN_PASSWORD || INPUT_ADMIN_PASSWORD=""
+read -p "Enter SMTP Host (leave blank to skip email alerts): " SMTP_HOST || SMTP_HOST=""
+
+if [ -n "$SMTP_HOST" ]; then
+    read -p "Enter SMTP Port (e.g., 587): " SMTP_PORT || SMTP_PORT=""
+    read -p "Enter SMTP User: " SMTP_USER || SMTP_USER=""
+    read -s -p "Enter SMTP Password: " SMTP_PASS || SMTP_PASS=""
+    echo ""
 fi
 
-if [ ! -f "${ENV_FILE}" ]; then
-  IS_NEW_ENV=1
-  log_info "Generating cryptographically secure random environment secrets..."
-  
-  # 32-byte JWT Secret
-  JWT_SECRET="$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p -c 32)"
-  
-  # 32-byte Backup Encryption Key
-  BACKUP_ENCRYPTION_KEY="$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p -c 32)"
-  
-  # 12-char Random Alphanumeric Admin Password
-  ADMIN_PASSWORD="$(openssl rand -base64 16 2>/dev/null | tr -dc 'a-zA-Z0-9' | head -c 12)"
-  if [ -z "${ADMIN_PASSWORD}" ] || [ "${#ADMIN_PASSWORD}" -lt 12 ]; then
-    ADMIN_PASSWORD="$(head -c 32 /dev/urandom | tr -dc 'a-zA-Z0-9' | head -c 12)"
-  fi
+# Auto-detect client IP from the SSH session
+CLIENT_IP=$(echo "${SSH_CLIENT:-}" | awk '{print $1}')
+if [ -z "$CLIENT_IP" ]; then
+    CLIENT_IP="127.0.0.1"
+fi
+echo "🔒 Whitelisting your current IP: $CLIENT_IP"
 
-  cat > "${ENV_FILE}" <<EOF
+# Dynamic .env Generation
+ADMIN_PASSWORD="${INPUT_ADMIN_PASSWORD:-$(openssl rand -base64 12)}"
+
+cat <<EOF> /opt/NexusControl/backend/.env
 PORT=8787
-HOST=127.0.0.1
-NODE_ENV=production
-JWT_SECRET=${JWT_SECRET}
-BACKUP_ENCRYPTION_KEY=${BACKUP_ENCRYPTION_KEY}
-ADMIN_PASSWORD=${ADMIN_PASSWORD}
+JWT_SECRET=$(openssl rand -hex 32)
+BACKUP_ENCRYPTION_KEY=$(openssl rand -hex 32)
+ADMIN_EMAIL=$ADMIN_EMAIL
+ADMIN_PASSWORD=$ADMIN_PASSWORD
+ALLOWED_IPS=$CLIENT_IP
+SMTP_HOST=$SMTP_HOST
+SMTP_PORT=$SMTP_PORT
+SMTP_USER=$SMTP_USER
+SMTP_PASS=$SMTP_PASS
 EOF
-
-  log_success "Generated new cryptographic environment."
-else
-  if [ -z "${ADMIN_PASSWORD}" ]; then
-    ADMIN_PASSWORD="$(grep -E '^ADMIN_PASSWORD=' "${ENV_FILE}" | cut -d'=' -f2- | tr -d '\"'\'' ' || true)"
-  fi
-  if [ -z "${ADMIN_PASSWORD}" ]; then
-    ADMIN_PASSWORD="[Configured in .env]"
-  fi
-  log_info "Retaining existing environment from ${ENV_FILE}."
-fi
-
-chmod 0600 "${ENV_FILE}"
-ln -sf "${ENV_FILE}" "${GLOBAL_ENV_FILE}" 2>/dev/null || true
+chmod 0600 /opt/NexusControl/backend/.env
+ln -sf /opt/NexusControl/backend/.env /opt/NexusControl/.env 2>/dev/null || true
 log_success "Secured environment configuration (chmod 0600)."
 
 # ------------------------------------------------------------------------------
@@ -393,56 +411,41 @@ systemctl restart nexuscontrol
 log_success "nexuscontrol.service enabled and started."
 
 # ------------------------------------------------------------------------------
-# Phase 5: Nginx Reverse Proxy
+# Phase 5: Nginx & SSL
 # ------------------------------------------------------------------------------
-log_info "Phase 5: Configuring Nginx Reverse Proxy with WebSocket Support..."
+log_info "Phase 5: Configuring Nginx Reverse Proxy and SSL..."
 
 # Remove default Debian/Ubuntu/RHEL welcome pages to prevent port 80 collisions
 rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true
 rm -f /etc/nginx/conf.d/default.conf 2>/dev/null || true
+mkdir -p /etc/nginx/conf.d
 
-NGINX_TARGET_CONF=""
-if [ -d /etc/nginx/conf.d ]; then
-  NGINX_TARGET_CONF="/etc/nginx/conf.d/nexuscontrol.conf"
-elif [ -d /etc/nginx/sites-available ]; then
-  NGINX_TARGET_CONF="/etc/nginx/sites-available/nexuscontrol.conf"
+if [ -z "${PANEL_DOMAIN:-}" ]; then
+    PANEL_DOMAIN="localhost"
 fi
 
-if [ -n "${NGINX_TARGET_CONF}" ]; then
-  cat > "${NGINX_TARGET_CONF}" <<'EOF'
+cat <<EOF> /etc/nginx/conf.d/${PANEL_DOMAIN}.conf
 server {
-    listen 80 default_server;
-    listen [::]:80 default_server;
-    server_name _;
-
-    client_max_body_size 500M;
-
+    listen 80;
+    server_name ${PANEL_DOMAIN};
+    
     location / {
         proxy_pass http://127.0.0.1:8787;
         proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_read_timeout 86400;
-        proxy_send_timeout 86400;
-        proxy_buffering off;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
     }
 }
 EOF
 
-  if [ -d /etc/nginx/sites-enabled ] && [ -f /etc/nginx/sites-available/nexuscontrol.conf ]; then
-    ln -sf /etc/nginx/sites-available/nexuscontrol.conf /etc/nginx/sites-enabled/nexuscontrol.conf
-  fi
+systemctl restart nginx
 
-  nginx -t && systemctl restart nginx
-  systemctl enable nginx || true
-  log_success "Nginx reverse proxy active on port 80."
-else
-  log_warn "Nginx configuration directory not found. Please configure reverse proxy manually."
-fi
+# Install Let's Encrypt SSL
+echo "🔒 Provisioning Let's Encrypt SSL for ${PANEL_DOMAIN}..."
+certbot --nginx -d "${PANEL_DOMAIN}" --non-interactive --agree-tos -m "${ADMIN_EMAIL}" --redirect || echo "⚠️  SSL provisioning failed. Please ensure DNS points to this VPS and ports 80/443 are open."
 
 # ------------------------------------------------------------------------------
 # Phase 6: Post-Install Output & Health Check
@@ -476,12 +479,16 @@ echo "╔═══════════════════════�
 echo "║                  NexusControl Deployed Successfully!                        ║"
 echo "╚═════════════════════════════════════════════════════════════════════════════╝"
 echo -e "${NC}"
-echo -e "  ${BOLD}Dashboard URL:${NC}       ${CYAN}http://${PUBLIC_IP}${NC} (or http://127.0.0.1:8787)"
-echo -e "  ${BOLD}Administrator:${NC}       ${YELLOW}admin${NC}"
+if [ -n "${PANEL_DOMAIN:-}" ] && [ "${PANEL_DOMAIN}" != "localhost" ]; then
+  echo -e "  ${BOLD}Dashboard URL:${NC}       ${CYAN}https://${PANEL_DOMAIN}${NC} (or http://${PUBLIC_IP})"
+else
+  echo -e "  ${BOLD}Dashboard URL:${NC}       ${CYAN}http://${PUBLIC_IP}${NC} (or http://127.0.0.1:8787)"
+fi
+echo -e "  ${BOLD}Administrator:${NC}       ${YELLOW}${ADMIN_EMAIL:-admin}${NC}"
 echo -e "  ${BOLD}Initial Password:${NC}    ${PURPLE}${ADMIN_PASSWORD}${NC}"
 echo ""
 echo -e "  ${BOLD}Security & Configuration:${NC}"
-echo -e "    1. Access your dashboard at ${CYAN}http://${PUBLIC_IP}${NC} and authenticate."
+echo -e "    1. Access your dashboard and authenticate."
 echo -e "    2. Set up SSL certificates via ${BOLD}Settings -> Let's Encrypt / Domains${NC}."
 echo -e "    3. Connect to your Zero Trust network via ${BOLD}WireGuard VPN${NC} (Port 51820 UDP)."
 echo -e "    4. Configure backup targets (Local / AWS S3 / Google Drive) under ${BOLD}Backups${NC}."
@@ -490,6 +497,6 @@ echo -e "  ${BOLD}Service Control:${NC}"
 echo -e "    Status:            systemctl status nexuscontrol"
 echo -e "    Live Logs:         journalctl -u nexuscontrol -f"
 echo -e "    Restart:           systemctl restart nexuscontrol"
-echo -e "    Configuration:     ${ENV_FILE}"
+echo -e "    Configuration:     /opt/NexusControl/backend/.env"
 echo ""
 echo -e "${GREEN}${BOLD}===============================================================================${NC}"

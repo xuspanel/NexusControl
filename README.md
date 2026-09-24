@@ -139,18 +139,22 @@ NexusControl includes a robust suite of shell utilities located in `/opt/NexusCo
 
 | Utility Script | Path | Description |
 | :--- | :--- | :--- |
-| **`install.sh`** | `/opt/NexusControl/install.sh` | Automated multi-distro installer supporting Ubuntu, Debian, and AlmaLinux/RHEL with interactive Node.js version verification. |
+| **`install.sh`** | `/opt/NexusControl/install.sh` | Automated multi-distro installer supporting Ubuntu, Debian, and AlmaLinux/RHEL with directory conflict resolution, interactive domain/SMTP/credentials setup, SSH IP perimeter whitelisting, and automated Let's Encrypt SSL provisioning. |
 | **`update.sh`** | `/opt/NexusControl/update.sh` | Pulls upstream code from `main`, updates dependencies, rebuilds frontend assets, and restarts the daemon while preserving all `.env` secrets, databases, and user configs. |
 | **`uninstall.sh`** | `/opt/NexusControl/uninstall.sh` | Safely halts services, removes Nginx virtual hosts, and interactively prompts whether to purge all data or preserve databases and backups for reinstallation. |
 | **`diagnose.sh`** | `/opt/NexusControl/diagnose.sh` | Level-1 troubleshooting wizard inspecting memory footprint, port bindings (`:8787`, `:51820`), SQLite integrity (`PRAGMA integrity_check`), and IPv4 forwarding. |
 | **`logs.sh`** | `/opt/NexusControl/logs.sh` | Real-time log multiplexer concurrently streaming the systemd daemon journal, Nginx error logs, and the cryptographic audit ledger. |
 | **`health.sh`** | `/opt/NexusControl/health.sh` | POSIX-compliant health checker validating systemd status, Nginx status, and HTTP `/health` probes. Exits with code `0` (healthy) or `1` (unhealthy) for crontabs or external monitoring agents (Uptime Kuma, Zabbix). |
 
-### Smart Node.js Version Check (`install.sh`)
-When running `install.sh` on an existing server, the installer prevents breaking co-located applications:
-1. **Compatible Runtime (Node >= 22):** Skips NodeSource repository installation and uses the existing engine.
-2. **Outdated Runtime (Node < 22):** Warns the user of incompatibility and pauses for interactive confirmation (`[y/N]`) before applying an upgrade.
-3. **Fresh Host (No Node):** Automatically configures NodeSource v22 LTS non-interactively.
+### Smart Directory Conflict & Runtime Verification (`install.sh`)
+When running `install.sh` on an existing server, the installer prevents breaking co-located applications and data:
+1. **Directory Conflict Resolution:** Detects existing `/opt/NexusControl` installations and prompts to safely upgrade via `update.sh` or wipe non-Nexus directories.
+2. **Interactive Configuration:** Prompts for domain/subdomain, admin credentials, and SMTP settings, while auto-detecting and whitelisting the administrator's SSH client IP.
+3. **Smart Node.js Version Check:**
+   - **Compatible Runtime (Node >= 22):** Skips NodeSource repository installation and uses the existing engine.
+   - **Outdated Runtime (Node < 22):** Warns the user of incompatibility and pauses for interactive confirmation (`[y/N]`) before applying an upgrade.
+   - **Fresh Host (No Node):** Automatically configures NodeSource v22 LTS non-interactively.
+4. **Nginx vHost & Automated SSL:** Generates custom virtual hosts for the specified domain and automates Let's Encrypt SSL certificate provisioning via Certbot.
 
 ---
 

@@ -246,6 +246,68 @@ app.post('/api/auth/logout', auth.authMiddleware, (req, res) => {
   res.json({ success: true });
 });
 
+// Onboarding / Profile 2FA Setup
+app.get('/api/auth/2fa/setup', auth.authMiddleware, async (req, res) => {
+  try {
+    const { generateSecret, generateURI } = require('otplib');
+    const qrcode = require('qrcode');
+    const totpSecret = generateSecret();
+    const otpUri = generateURI({
+      secret: totpSecret,
+      label: req.user?.username || 'admin',
+      issuer: 'NexusControl'
+    });
+    const qrCodeDataUrl = await qrcode.toDataURL(otpUri);
+    res.json({ success: true, secret: totpSecret, otpUri, qrCodeDataUrl });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/auth/2fa/enable', auth.authMiddleware, (req, res) => {
+  try {
+    const { verifySync } = require('otplib');
+    const db = require('./db');
+    const { secret, code } = req.body || {};
+    if (!secret || !code) {
+      return res.status(400).json({ error: 'Secret and verification code are required.' });
+    }
+    const verifyResult = verifySync({ token: String(code).trim(), secret });
+    const isValid = verifyResult === true || (verifyResult && verifyResult.valid === true);
+    if (!isValid) {
+      return res.status(400).json({ error: 'Invalid 2FA code. Please verify the 6-digit code in your authenticator app.' });
+    }
+
+    db.updateUser2FA(req.user.id, 1, secret);
+    auditLogger.logEvent({
+      action: '2FA_ENABLED',
+      user: req.user?.username || 'admin',
+      ip: req.clientIp,
+      userAgent: req.headers['user-agent']
+    });
+
+    res.json({ success: true, message: 'Two-factor authentication successfully enabled.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/auth/2fa/disable', auth.authMiddleware, (req, res) => {
+  try {
+    const db = require('./db');
+    db.updateUser2FA(req.user.id, 0, null);
+    auditLogger.logEvent({
+      action: '2FA_DISABLED',
+      user: req.user?.username || 'admin',
+      ip: req.clientIp,
+      userAgent: req.headers['user-agent']
+    });
+    res.json({ success: true, message: 'Two-factor authentication disabled.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // SSE Stream Endpoint
 app.get('/api/stream', auth.authMiddleware, (req, res) => {
   res.writeHead(200, {

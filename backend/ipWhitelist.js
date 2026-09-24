@@ -28,10 +28,15 @@ function ipWhitelistMiddleware(req, res, next) {
     .map(ip => cleanIp(ip.trim()))
     .filter(Boolean);
 
-  const allowedSet = new Set([...defaultAllowed, ...configuredAllowed]);
   const clientIp = getClientIp(req);
-
   req.clientIp = clientIp;
+
+  // If 0.0.0.0/0 or wildcard is specified, allow all traffic
+  if (configuredAllowed.includes('0.0.0.0/0') || configuredAllowed.includes('*') || configuredAllowed.includes('all')) {
+    return next();
+  }
+
+  const allowedSet = new Set([...defaultAllowed, ...configuredAllowed]);
 
   if (allowedSet.has(clientIp)) {
     return next();
@@ -77,6 +82,10 @@ function isIpAllowed(ip) {
     .split(',')
     .map(i => cleanIp(i.trim()))
     .filter(Boolean);
+
+  if (configuredAllowed.includes('0.0.0.0/0') || configuredAllowed.includes('*') || configuredAllowed.includes('all')) {
+    return true;
+  }
 
   const allowedSet = new Set([...defaultAllowed, ...configuredAllowed]);
   const cleaned = cleanIp(ip);

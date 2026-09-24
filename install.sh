@@ -328,12 +328,15 @@ if [ -n "$SMTP_HOST" ]; then
     echo ""
 fi
 
-# Auto-detect client IP from the SSH session
-CLIENT_IP=$(echo "${SSH_CLIENT:-}" | awk '{print $1}')
-if [ -z "$CLIENT_IP" ]; then
-    CLIENT_IP="127.0.0.1"
+# Auto-detect client IP surviving sudo
+DETECTED_IP=$(who -m | awk '{print $NF}' | tr -d '()')
+if [[ ! "$DETECTED_IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    DETECTED_IP="0.0.0.0/0"
 fi
-echo "🔒 Whitelisting your current IP: $CLIENT_IP"
+
+read -p "Enter your current IP for the whitelist (Press Enter to use $DETECTED_IP): " INPUT_IP < /dev/tty
+CLIENT_IP="${INPUT_IP:-$DETECTED_IP}"
+echo "🔒 Whitelisting IP: $CLIENT_IP"
 
 # Dynamic .env Generation
 ADMIN_PASSWORD="${INPUT_ADMIN_PASSWORD:-$(openssl rand -base64 12)}"

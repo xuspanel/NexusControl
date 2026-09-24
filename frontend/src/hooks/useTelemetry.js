@@ -53,6 +53,12 @@ export function useTelemetry() {
       });
       const data = await res.json();
       if (res.ok && data.success) {
+        if (data.step === 'COMPLETE' && data.token) {
+          localStorage.setItem('nx_token', data.token);
+          setToken(data.token);
+          setIsAuthenticated(true);
+          return { success: true, complete: true, token: data.token, user: data.user };
+        }
         return { success: true, tempToken: data.tempToken };
       }
       return { success: false, error: data.error || 'Invalid credentials' };

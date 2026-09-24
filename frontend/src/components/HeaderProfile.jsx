@@ -16,8 +16,12 @@ import {
 } from 'lucide-react';
 import ThemeToggle from './ThemeToggle';
 import OsBadge from './OsBadge';
+import { useAuth } from '../context/AuthContext';
+import TwoFactorModal from './TwoFactorModal';
 
 export default function HeaderProfile({ profile, telemetry, connected, onLogout, onRefresh }) {
+  const { twoFactorEnabled, refreshUser, token } = useAuth();
+  const [is2faModalOpen, setIs2faModalOpen] = useState(false);
   const [copiedIp, setCopiedIp] = useState(null);
 
   const copyToClipboard = (text, type) => {
@@ -97,6 +101,26 @@ export default function HeaderProfile({ profile, telemetry, connected, onLogout,
                 <div className="text-xs font-semibold leading-tight mt-0.5">{health.toUpperCase()}</div>
               </div>
             </div>
+
+            {/* 2FA Status Badge & Trigger */}
+            <button
+              onClick={() => setIs2faModalOpen(true)}
+              title={twoFactorEnabled ? 'Two-Factor Authentication is Active' : 'Two-Factor Authentication is Disabled - Click to Configure'}
+              className={`px-2.5 py-1.5 rounded-lg border flex items-center gap-1.5 text-xs font-mono transition-all cursor-pointer ${
+                twoFactorEnabled
+                  ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20'
+                  : 'bg-amber-500/15 border-amber-500/30 text-amber-700 dark:text-amber-400 hover:bg-amber-500/25 animate-pulse'
+              }`}
+            >
+              {twoFactorEnabled ? (
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
+              ) : (
+                <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
+              )}
+              <span className="hidden md:inline font-semibold">
+                {twoFactorEnabled ? '2FA ACTIVE' : '2FA DISABLED'}
+              </span>
+            </button>
 
             {/* Theme Toggle (Light / Dark / System) */}
             <ThemeToggle />
@@ -200,6 +224,15 @@ export default function HeaderProfile({ profile, telemetry, connected, onLogout,
           </div>
         </div>
       </div>
+
+      <TwoFactorModal
+        isOpen={is2faModalOpen}
+        onClose={() => setIs2faModalOpen(false)}
+        token={token}
+        onEnabled={() => {
+          refreshUser?.();
+        }}
+      />
     </header>
   );
 }

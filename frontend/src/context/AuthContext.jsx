@@ -24,18 +24,37 @@ export function decodeJwt(token) {
 export function AuthProvider({ children, token, onLogout }) {
   const [user, setUser] = useState(() => decodeJwt(token));
 
+  const refreshUser = useCallback(async () => {
+    if (!token) return;
+    try {
+      const res = await fetch('/api/auth/check', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.user) {
+          setUser(prev => ({ ...prev, ...data.user }));
+        }
+      }
+    } catch (err) {
+      console.warn('[AUTH] Failed to refresh user state:', err);
+    }
+  }, [token]);
+
   useEffect(() => {
     if (token) {
       const decoded = decodeJwt(token);
       setUser(decoded);
+      refreshUser();
     } else {
       setUser(null);
     }
-  }, [token]);
+  }, [token, refreshUser]);
 
   const role = user?.role || 'viewer';
   const username = user?.username || 'anonymous';
   const granularPolicies = user?.granular_policies || null;
+  const twoFactorEnabled = Boolean(user?.two_factor_enabled);
 
   const hasRole = useCallback((allowedRoles) => {
     if (!allowedRoles) return true;
@@ -68,6 +87,8 @@ export function AuthProvider({ children, token, onLogout }) {
     role,
     username,
     granularPolicies,
+    twoFactorEnabled,
+    refreshUser,
     hasRole,
     hasModuleAccess,
     isSuperAdmin,
@@ -75,7 +96,7 @@ export function AuthProvider({ children, token, onLogout }) {
     isCustom,
     token,
     logout: onLogout
-  }), [user, role, username, granularPolicies, hasRole, hasModuleAccess, isSuperAdmin, isOperator, isCustom, token, onLogout]);
+  }), [user, role, username, granularPolicies, twoFactorEnabled, refreshUser, hasRole, hasModuleAccess, isSuperAdmin, isOperator, isCustom, token, onLogout]);
 
   return (
     <AuthContext.Provider value={value}>
@@ -97,6 +118,8 @@ export function useAuth() {
       isSuperAdmin: false,
       isOperator: false,
       isCustom: false,
+      twoFactorEnabled: false,
+      refreshUser: () => {},
       token: '',
       logout: () => {}
     };

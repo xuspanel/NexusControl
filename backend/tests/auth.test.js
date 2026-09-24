@@ -25,7 +25,24 @@ describe('Authentication & Perimeter Defense Integration', () => {
     expect(res.body.error).toContain('Invalid master password');
   });
 
-  test('Step 1 Handshake succeeds with valid password and returns 2FA challenge', async () => {
+  test('Step 1 Handshake succeeds with valid password without 2FA (graceful onboarding)', async () => {
+    const res = await request(app)
+      .post('/api/auth/step1')
+      .send({ password: masterPassword });
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.step).toBe('COMPLETE');
+    expect(res.body.token).toBeDefined();
+    expect(res.body.user).toBeDefined();
+    expect(res.body.user.two_factor_enabled).toBe(false);
+  });
+
+  test('Step 1 Handshake returns 2FA challenge when 2FA is enabled for user', async () => {
+    const db = require('../db');
+    const admin = db.getUserByUsername('admin');
+    db.updateUser2FA(admin.id, 1, 'JBSWY3DPEHPK3PXP');
+
     const res = await request(app)
       .post('/api/auth/step1')
       .send({ password: masterPassword });
@@ -35,6 +52,9 @@ describe('Authentication & Perimeter Defense Integration', () => {
     expect(res.body.step).toBe('2FA_REQUIRED');
     expect(res.body.tempToken).toBeDefined();
     expect(typeof res.body.tempToken).toBe('string');
+
+    // Reset back to 0
+    db.updateUser2FA(admin.id, 0, null);
   });
 
   test('Rate Limiter enforces brute-force protection (HTTP 429) after excessive attempts', async () => {

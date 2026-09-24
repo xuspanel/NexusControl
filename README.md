@@ -5,7 +5,7 @@
 [![Architecture](https://img.shields.io/badge/Arch-x86__64%20%7C%20aarch64-8957e5?style=flat-square)](https://github.com/xuspanel/NexusControl)
 [![Memory Footprint](https://img.shields.io/badge/Memory%20Footprint-~35MB%20RAM-emerald?style=flat-square)](https://github.com/xuspanel/NexusControl)
 [![WireGuard](https://img.shields.io/badge/VPN-Zero%20Trust%20WireGuard-88171a?style=flat-square&logo=wireguard)](https://www.wireguard.com/)
-[![Tests](https://img.shields.io/badge/Test%20Suites-14%20Passed%20%7C%20157%20Tests-success?style=flat-square)](https://github.com/xuspanel/NexusControl)
+[![Tests](https://img.shields.io/badge/Test%20Suites-14%20Passed%20%7C%20158%20Tests-success?style=flat-square)](https://github.com/xuspanel/NexusControl)
 
 **NexusControl** is an ultra-lightweight, zero-bloat, enterprise-grade Linux VPS control plane, monitoring platform, and operations engine. Built directly on native Linux kernel primitives and modern Node.js v22 APIs, NexusControl delivers real-time host telemetry, zero-trust WireGuard mesh VPN management, fine-grained access control (FGAC), Docker socket orchestration, atomic Nginx virtual host management, cryptographic audit logging, streaming disaster recovery, and in-browser root terminals with tmux-style session persistence.
 
@@ -103,10 +103,11 @@ NexusControl features a native, host-level WireGuard mesh VPN engine (`backend/w
 ### 🛡️ Security, Cryptographic Ledger & FGAC
 - **SHA-256 Tamper-Evident Audit Ledger:** Every privileged administrative operation is canonically serialized and cryptographically chained to its predecessor (`event_hash = SHA256(prev_hash + ":" + canonicalPayload)`). The integrity verification endpoint mathematically walks the ledger from Genesis to Head to immediately expose any manual row modifications.
 - **Fine-Grained Access Control (FGAC) Jailing:** Restrict delegated operators or contractors to isolated directory trees (`allowed_directories`) and specific Docker containers (`allowed_containers`). Directory traversal attacks (`../`, null bytes, symlink breakouts) are actively blocked at the middleware layer with immediate `SECURITY_VIOLATION` event generation.
-- **Three-Step Defense-in-Depth Authentication:**
+- **Three-Step Defense-in-Depth Authentication & Graceful Onboarding:**
   1. Master Password Verification (Bcrypt hashing, 10 rounds).
-  2. Time-Based One-Time Password (TOTP 2FA via RFC 6238).
-  3. Perimeter IP Verification via 6-digit email OTP (with automatic systemd journal fallback to prevent administrative lockout).
+  2. Graceful 2FA Onboarding: Seeded SuperAdmins authenticate seamlessly without lockout; the dashboard prompts with high-visibility banner and one-click in-app QR scanning (`/api/auth/2fa/setup`).
+  3. Time-Based One-Time Password (TOTP 2FA via RFC 6238) once activated.
+  4. Perimeter IP Verification via 6-digit email OTP (with automatic systemd journal fallback to prevent administrative lockout).
 
 ### 🐳 Native Docker & Atomic Nginx Orchestration
 - **UNIX Domain Socket Docker Engine:** Communicates directly with `/var/run/docker.sock` over native HTTP without external dependencies. Features container inspection, real-time CPU/memory stats caching, container restarts, log tailing, and safe lifecycle controls.

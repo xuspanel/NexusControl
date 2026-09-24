@@ -13,12 +13,13 @@ const verifiedIps = new Set();    // Set of recognized IPs that have completed e
 const revokedTokens = new Set();  // In-memory blacklist for revoked JWTs
 
 // Periodically clean up expired challenges
-setInterval(() => {
+const cleanupInterval = setInterval(() => {
   const now = Date.now();
   for (const [t, c] of challenges.entries()) {
     if (c.expiresAt < now) challenges.delete(t);
   }
 }, 60000);
+if (cleanupInterval.unref) cleanupInterval.unref();
 
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST || 'localhost',
@@ -77,10 +78,12 @@ async function sendEmailOtp(toEmail, code, clientIp) {
  */
 function generateToken(user) {
   const policies = db.parsePolicies ? db.parsePolicies(user.granular_policies) : user.granular_policies;
+  const is2fa = Boolean(user.two_factor_enabled);
   const payload = {
     id: user.id,
     username: user.username,
     role: user.role,
+    two_factor_enabled: is2fa,
     granular_policies: policies || null
   };
   return jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
@@ -100,7 +103,8 @@ function verifyToken(token) {
     return {
       id: 'test-admin',
       username: 'root',
-      role: 'superadmin'
+      role: 'superadmin',
+      two_factor_enabled: true
     };
   }
 
@@ -145,8 +149,9 @@ function handleStep1Password(password, clientIp, username = 'admin') {
     return { success: false, error: 'Invalid master password.' };
   }
 
-  // Check if TOTP is configured for this user or required globally
-  const hasTotp = Boolean(user.totp_secret) || (process.env.TOTP_ENFORCED === 'true');
+  // Check if 2FA is enabled for this user or required globally
+  const is2faActive = (user.two_factor_enabled === 1 || user.two_factor_enabled === true || user.two_factor_enabled === '1') || (process.env.TOTP_ENFORCED === 'true');
+  const hasTotp = is2faActive && Boolean(user.totp_secret);
 
   if (hasTotp) {
     const tempToken = crypto.randomBytes(24).toString('hex');
@@ -167,7 +172,7 @@ function handleStep1Password(password, clientIp, username = 'admin') {
     };
   }
 
-  // No TOTP required -> Complete authentication immediately
+  // When two_factor_enabled is false/0 -> Complete authentication immediately
   db.updateUserLastLogin(user.id);
   const sessionToken = generateToken(user);
 
@@ -178,7 +183,8 @@ function handleStep1Password(password, clientIp, username = 'admin') {
     user: {
       id: user.id,
       username: user.username,
-      role: user.role
+      role: user.role,
+      two_factor_enabled: Boolean(user.two_factor_enabled)
     }
   };
 }
@@ -344,16 +350,19 @@ function authMiddleware(req, res, next) {
     req.authenticated = true;
     req.user = decoded;
 
-    // For custom roles, always fetch up-to-date policies from SQLite to ensure immediate revocation
-    if (decoded.role === 'custom' && decoded.id) {
+    // Always fetch up-to-date user state from SQLite
+    if (decoded.id) {
       try {
         const liveUser = db.getUserById(decoded.id);
         if (liveUser) {
           req.user.role = liveUser.role;
-          req.user.granular_policies = liveUser.granular_policies;
+          req.user.two_factor_enabled = Boolean(liveUser.two_factor_enabled);
+          if (decoded.role === 'custom') {
+            req.user.granular_policies = liveUser.granular_policies;
+          }
         }
       } catch (err) {
-        console.warn('[AUTH] Failed to refresh live policies for custom user:', err.message);
+        console.warn('[AUTH] Failed to refresh live user state:', err.message);
       }
     }
 

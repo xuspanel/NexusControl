@@ -55,6 +55,7 @@ function initDb(databaseInstance) {
       password_hash TEXT NOT NULL,
       role TEXT NOT NULL,
       totp_secret TEXT,
+      two_factor_enabled INTEGER DEFAULT 0,
       granular_policies TEXT,
       created_at INTEGER NOT NULL,
       last_login INTEGER
@@ -63,6 +64,10 @@ function initDb(databaseInstance) {
 
   try {
     db.exec(`ALTER TABLE users ADD COLUMN granular_policies TEXT;`);
+  } catch {}
+
+  try {
+    db.exec(`ALTER TABLE users ADD COLUMN two_factor_enabled INTEGER DEFAULT 0;`);
   } catch {}
 
   const smtpColumns = [
@@ -88,7 +93,8 @@ function initDb(databaseInstance) {
 
   selectAllUsersStmt = db.prepare(`
     SELECT id, username, role, 
-           CASE WHEN totp_secret IS NOT NULL AND length(totp_secret) > 0 THEN 1 ELSE 0 END as totp_enabled,
+           COALESCE(two_factor_enabled, 0) as two_factor_enabled,
+           CASE WHEN COALESCE(two_factor_enabled, 0) = 1 AND totp_secret IS NOT NULL AND length(totp_secret) > 0 THEN 1 ELSE 0 END as totp_enabled,
            granular_policies,
            created_at, last_login 
     FROM users 
@@ -96,8 +102,8 @@ function initDb(databaseInstance) {
   `);
 
   insertUserStmt = db.prepare(`
-    INSERT INTO users (id, username, password_hash, role, totp_secret, granular_policies, created_at, last_login)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO users (id, username, password_hash, role, totp_secret, two_factor_enabled, granular_policies, created_at, last_login)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   updateUserRoleStmt = db.prepare(`
@@ -133,14 +139,13 @@ function initDb(databaseInstance) {
 
 /**
  * Check if the users table is empty.
- * If empty, seed initial superadmin from legacy ADMIN_PASSWORD and TOTP_SECRET.
+ * If empty, seed initial superadmin from legacy ADMIN_PASSWORD with 2FA disabled by default.
  */
 function seedInitialAdmin() {
   try {
     const res = countUsersStmt.get();
     if (!res || res.count === 0) {
       const legacyPassword = process.env.ADMIN_PASSWORD || 'nexus2026!';
-      const legacyTotpSecret = process.env.ADMIN_TOTP_SECRET || process.env.TOTP_SECRET || null;
       const saltRounds = 10;
       const passwordHash = bcrypt.hashSync(legacyPassword, saltRounds);
       const adminId = crypto.randomUUID();
@@ -151,12 +156,13 @@ function seedInitialAdmin() {
         'admin',
         passwordHash,
         'superadmin',
-        legacyTotpSecret,
+        null, // No TOTP secret by default
+        0,    // two_factor_enabled = 0 by default for graceful onboarding
         null,
         now,
         null
       );
-      console.log('[RBAC SEED] Seeded initial superadmin user (admin) from legacy environment credentials.');
+      console.log('[RBAC SEED] Seeded initial superadmin user (admin) with two_factor_enabled = 0.');
     }
   } catch (err) {
     console.error('[RBAC SEED ERROR] Failed to seed initial superadmin:', err.message);
@@ -171,6 +177,7 @@ function getUserByUsername(username) {
   if (!row) return null;
   return {
     ...row,
+    two_factor_enabled: Boolean(row.two_factor_enabled),
     granular_policies: parsePolicies(row.granular_policies)
   };
 }
@@ -181,6 +188,7 @@ function getUserById(id) {
   if (!row) return null;
   return {
     ...row,
+    two_factor_enabled: Boolean(row.two_factor_enabled),
     granular_policies: parsePolicies(row.granular_policies)
   };
 }
@@ -189,6 +197,7 @@ function getAllUsers() {
   const rows = selectAllUsersStmt.all();
   return rows.map(r => ({
     ...r,
+    two_factor_enabled: Boolean(r.two_factor_enabled),
     granular_policies: parsePolicies(r.granular_policies)
   }));
 }
@@ -198,7 +207,7 @@ function countUsers() {
   return res ? res.count : 0;
 }
 
-function createUser({ username, password, role = 'operator', totpSecret = null, granular_policies = null }) {
+function createUser({ username, password, role = 'operator', totpSecret = null, twoFactorEnabled = false, granular_policies = null }) {
   if (!username || typeof username !== 'string' || !username.trim()) {
     throw new Error('Username is required.');
   }
@@ -228,6 +237,7 @@ function createUser({ username, password, role = 'operator', totpSecret = null, 
   const passwordHash = bcrypt.hashSync(password, 10);
   const now = Date.now();
   const formattedPolicies = formatPolicies(granular_policies);
+  const is2fa = (twoFactorEnabled || Boolean(totpSecret)) ? 1 : 0;
 
   insertUserStmt.run(
     id,
@@ -235,6 +245,7 @@ function createUser({ username, password, role = 'operator', totpSecret = null, 
     passwordHash,
     role,
     totpSecret || null,
+    is2fa,
     formattedPolicies,
     now,
     null
@@ -245,10 +256,23 @@ function createUser({ username, password, role = 'operator', totpSecret = null, 
     username: cleanUsername,
     role,
     granular_policies: parsePolicies(formattedPolicies),
-    totp_enabled: Boolean(totpSecret),
+    two_factor_enabled: Boolean(is2fa),
+    totp_enabled: Boolean(totpSecret && is2fa),
     created_at: now,
     last_login: null
   };
+}
+
+function updateUser2FA(id, twoFactorEnabled, totpSecret = null) {
+  const enabled = twoFactorEnabled ? 1 : 0;
+  if (totpSecret !== null) {
+    const stmt = db.prepare(`UPDATE users SET two_factor_enabled = ?, totp_secret = ? WHERE id = ?`);
+    stmt.run(enabled, totpSecret, id);
+  } else {
+    const stmt = db.prepare(`UPDATE users SET two_factor_enabled = ? WHERE id = ?`);
+    stmt.run(enabled, id);
+  }
+  return getUserById(id);
 }
 
 function updateUserRole(id, newRole, granularPolicies = undefined) {
@@ -349,6 +373,7 @@ module.exports = {
   updateUserPolicies,
   updateUserPassword,
   updateUserLastLogin,
+  updateUser2FA,
   deleteUser,
   seedInitialAdmin,
   parsePolicies,

@@ -35,6 +35,10 @@ export default function AuthGate({ onStep1, onStep2, onStep3 }) {
     setLoading(false);
 
     if (res.success) {
+      if (res.complete) {
+        // Direct login succeeded without 2FA
+        return;
+      }
       setTempToken(res.tempToken);
       setStep(2);
     } else {

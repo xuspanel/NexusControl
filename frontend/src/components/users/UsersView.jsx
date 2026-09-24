@@ -788,12 +788,21 @@ export default function UsersView({ token, onShowToast }) {
                       </td>
 
                       <td className="py-3.5 px-4">
-                        <div className="flex items-center space-x-1.5">
-                          <KeyRound className="w-3.5 h-3.5 text-emerald-500" />
-                          <span className="text-emerald-600 dark:text-emerald-400 font-mono text-[11px]">
-                            Enforced (TOTP)
-                          </span>
-                        </div>
+                        {u.two_factor_enabled ? (
+                          <div className="flex items-center space-x-1.5">
+                            <KeyRound className="w-3.5 h-3.5 text-emerald-500" />
+                            <span className="text-emerald-600 dark:text-emerald-400 font-mono text-[11px]">
+                              Enforced (TOTP)
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center space-x-1.5">
+                            <KeyRound className="w-3.5 h-3.5 text-zinc-400" />
+                            <span className="text-zinc-400 dark:text-zinc-500 font-mono text-[11px]">
+                              Disabled
+                            </span>
+                          </div>
+                        )}
                       </td>
 
                       <td className="py-3.5 px-4 font-mono text-zinc-500 text-[11px]">

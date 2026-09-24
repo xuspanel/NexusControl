@@ -20,6 +20,7 @@ import BackupsView from './components/backups/BackupsView';
 import UsersView from './components/users/UsersView';
 import WireGuardView from './components/network/WireGuardView';
 import AlertsView from './components/settings/AlertsView';
+import TwoFactorBanner from './components/TwoFactorBanner';
 import { AuthProvider } from './context/AuthContext';
 
 // Adaptive Tri-Mode Navigation Components
@@ -198,6 +199,9 @@ export default function App() {
           sidebarCollapsed ? 'pl-0 md:pl-16' : 'pl-0 md:pl-16 xl:pl-60'
         }`}
       >
+        {/* Two-Factor Authentication Onboarding Banner */}
+        <TwoFactorBanner onShowToast={showToast} />
+
         {activeTab === 'overview' || activeTab === 'telemetry' ? (
           <main className="max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-4 space-y-6">
             {/* VPS System Profile & Hardware Hero Card */}

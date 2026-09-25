@@ -36,6 +36,13 @@ if [ -f "/etc/wireguard/wg0.conf" ]; then
     fi
 fi
 
+# 3. Migrate .env to include PUBLIC_IP
+if ! grep -q "^PUBLIC_IP=" "/opt/NexusControl/backend/.env"; then
+    echo "🔄 Migrating .env to include PUBLIC_IP..."
+    SERVER_PUBLIC_IP=$(curl -sS --max-time 5 ifconfig.me || echo "127.0.0.1")
+    echo "PUBLIC_IP=$SERVER_PUBLIC_IP" >> /opt/NexusControl/backend/.env
+fi
+
 echo "🚀 Restarting NexusControl Daemon..."
 systemctl restart nexuscontrol
 

@@ -276,10 +276,15 @@ function getHostEndpoint() {
   if (process.env.WIREGUARD_ENDPOINT) {
     return process.env.WIREGUARD_ENDPOINT;
   }
-  if (process.env.PUBLIC_IP) {
-    return process.env.PUBLIC_IP;
+  let publicIp = process.env.PUBLIC_IP;
+  if (!publicIp) {
+    try {
+      publicIp = cp.execSync('curl -sS --max-time 3 ifconfig.me').toString().trim();
+    } catch (e) {
+      publicIp = '127.0.0.1'; // Failsafe
+    }
   }
-  return '132.145.70.205';
+  return publicIp || '127.0.0.1';
 }
 
 /**

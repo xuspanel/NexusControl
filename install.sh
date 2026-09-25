@@ -340,6 +340,9 @@ read -p "Enter your current IP for the whitelist (Press Enter to use $DETECTED_I
 CLIENT_IP="${INPUT_IP:-$DETECTED_IP}"
 echo "🔒 Whitelisting IP: $CLIENT_IP"
 
+echo "[INFO] Detecting server public IP..."
+SERVER_PUBLIC_IP=$(curl -sS --max-time 5 ifconfig.me || echo "127.0.0.1")
+
 # Dynamic .env Generation
 ADMIN_PASSWORD="${INPUT_ADMIN_PASSWORD:-$(openssl rand -base64 12)}"
 
@@ -350,6 +353,7 @@ BACKUP_ENCRYPTION_KEY=$(openssl rand -hex 32)
 ADMIN_EMAIL=$ADMIN_EMAIL
 ADMIN_PASSWORD=$ADMIN_PASSWORD
 ALLOWED_IPS=$CLIENT_IP
+PUBLIC_IP=$SERVER_PUBLIC_IP
 SMTP_HOST=$SMTP_HOST
 SMTP_PORT=$SMTP_PORT
 SMTP_USER=$SMTP_USER

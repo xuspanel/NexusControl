@@ -16,6 +16,32 @@ ensure_env_var() {
 }
 
 echo "🔄 Initiating NexusControl Update..."
+
+# [SAFETY GUARD] Pre-Update Backup
+DO_BACKUP="y"
+if [ -c /dev/tty ]; then
+    read -p "📦 Do you want to create a safe backup of your data before updating? [Y/n]: " DO_BACKUP < /dev/tty
+fi
+
+if [[ ! "$DO_BACKUP" =~ ^[Nn]$ ]]; then
+    echo "⏳ Creating state backup..."
+    mkdir -p /opt/NexusControl_backups
+    TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+    BACKUP_FILE="/opt/NexusControl_backups/nexus_preupdate_${TIMESTAMP}.tar.gz"
+    
+    # Backup the entire directory EXCEPT heavy transient folders (node_modules, .git, .uploads)
+    tar --exclude='./node_modules' \
+        --exclude='./frontend/node_modules' \
+        --exclude='./.git' \
+        --exclude='./.uploads' \
+        --exclude='./.trash' \
+        -czf "$BACKUP_FILE" -C /opt NexusControl 2>/dev/null
+        
+    echo "✅ Backup secured at: $BACKUP_FILE"
+else
+    echo "⏭️  Skipping backup..."
+fi
+
 cd /opt/NexusControl || exit 1
 
 echo "📦 Pulling latest codebase from GitHub..."

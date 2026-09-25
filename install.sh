@@ -43,6 +43,19 @@ banner() {
 
 banner
 
+echo "🚀 Initializing NexusControl Enterprise Installer..."
+
+# [SAFETY GUARD] Detect existing installation
+if [ -d "/opt/NexusControl" ] && [ -f "/opt/NexusControl/update.sh" ]; then
+    echo "=================================================================="
+    echo "⚠️  NexusControl is already installed on this server!"
+    echo "👉 Redirecting you to the safe Update & Migration Script..."
+    echo "=================================================================="
+    sleep 2
+    exec /opt/NexusControl/update.sh
+    exit 0
+fi
+
 # ------------------------------------------------------------------------------
 # 0. Root Privilege Check & Path Setup
 # ------------------------------------------------------------------------------

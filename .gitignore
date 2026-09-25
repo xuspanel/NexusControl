@@ -11,12 +11,13 @@ frontend/dist/
 .env
 .env.local
 
-# Runtime App Data & Storage
-.trash/
+# NexusControl Client Data & Configs
+backend/.env
+backend/*.db
+backend/*.db-wal
+backend/*.db-shm
 .uploads/
-backend/metrics.db
-backend/metrics.db-wal
-backend/metrics.db-shm
+.trash/
 
 # OS Files
 .DS_Store

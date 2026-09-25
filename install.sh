@@ -332,13 +332,34 @@ fi
 
 # Auto-detect client IP surviving sudo
 DETECTED_IP=$(who -m | awk '{print $NF}' | tr -d '()')
+
+# Validate IP format
 if [[ ! "$DETECTED_IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-    DETECTED_IP="0.0.0.0/0"
+    DETECTED_IP=""
 fi
 
-read -p "Enter your current IP for the whitelist (Press Enter to use $DETECTED_IP): " INPUT_IP < /dev/tty
-CLIENT_IP="${INPUT_IP:-$DETECTED_IP}"
-echo "🔒 Whitelisting IP: $CLIENT_IP"
+echo ""
+if [ -n "$DETECTED_IP" ]; then
+    echo "🌐 We detected your current device/network IP as: $DETECTED_IP"
+    read -p "Do you want to restrict NexusControl access to ONLY this IP? (Recommended) [Y/n]: " RESTRICT_CONFIRM < /dev/tty
+    if [[ "$RESTRICT_CONFIRM" =~ ^[Nn]$ ]]; then
+        echo "⚠️ Panel will be accessible from anywhere (0.0.0.0/0)."
+        CLIENT_IP="0.0.0.0/0"
+    else
+        CLIENT_IP="$DETECTED_IP"
+        echo "🔒 Whitelisting your IP: $CLIENT_IP"
+    fi
+else
+    echo "⚠️ Could not auto-detect your client IP."
+    read -p "Enter an IP to whitelist, or leave blank to allow all access (0.0.0.0/0): " INPUT_IP < /dev/tty
+    CLIENT_IP="${INPUT_IP:-0.0.0.0/0}"
+    
+    if [ "$CLIENT_IP" == "0.0.0.0/0" ]; then
+        echo "⚠️ Panel will be accessible from anywhere."
+    else
+        echo "🔒 Whitelisting your IP: $CLIENT_IP"
+    fi
+fi
 
 echo "[INFO] Detecting server public IP..."
 SERVER_PUBLIC_IP=$(curl -sS --max-time 5 ifconfig.me || echo "127.0.0.1")

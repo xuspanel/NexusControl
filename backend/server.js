@@ -449,6 +449,74 @@ app.get('/api/system/logs', auth.authMiddleware, async (req, res) => {
   }
 });
 
+app.get('/api/system/updates', auth.authMiddleware, async (req, res) => {
+  try {
+    // 1. Get local version
+    let currentVersion = '1.0.0';
+    const localPkgPath = path.join(__dirname, 'package.json');
+    const rootPkgPath = path.join(__dirname, '..', 'package.json');
+
+    if (fs.existsSync(localPkgPath)) {
+      const localPkg = JSON.parse(fs.readFileSync(localPkgPath, 'utf8'));
+      currentVersion = localPkg.version || currentVersion;
+    } else if (fs.existsSync(rootPkgPath)) {
+      const rootPkg = JSON.parse(fs.readFileSync(rootPkgPath, 'utf8'));
+      currentVersion = rootPkg.version || currentVersion;
+    }
+
+    // 2. Fetch remote version and changelog (using native fetch)
+    let latestVersion = currentVersion;
+    let changelog = '';
+
+    try {
+      const remotePkgRes = await fetch('https://raw.githubusercontent.com/xuspanel/NexusControl/main/backend/package.json', {
+        signal: AbortSignal.timeout(6000),
+        headers: { 'User-Agent': 'NexusControl-UpdateChecker' }
+      });
+      if (remotePkgRes.ok) {
+        const remotePkg = await remotePkgRes.json();
+        latestVersion = remotePkg.version || currentVersion;
+      }
+    } catch (fetchErr) {
+      console.warn('[Updates] Remote package.json fetch warning:', fetchErr.message);
+    }
+
+    try {
+      const changelogRes = await fetch('https://raw.githubusercontent.com/xuspanel/NexusControl/main/CHANGELOG.md', {
+        signal: AbortSignal.timeout(6000),
+        headers: { 'User-Agent': 'NexusControl-UpdateChecker' }
+      });
+      if (changelogRes.ok) {
+        changelog = await changelogRes.text();
+      } else {
+        const localChangelogPath = path.join(__dirname, '..', 'CHANGELOG.md');
+        if (fs.existsSync(localChangelogPath)) {
+          changelog = fs.readFileSync(localChangelogPath, 'utf8');
+        }
+      }
+    } catch (fetchErr) {
+      console.warn('[Updates] Remote CHANGELOG.md fetch warning:', fetchErr.message);
+      const localChangelogPath = path.join(__dirname, '..', 'CHANGELOG.md');
+      if (fs.existsSync(localChangelogPath)) {
+        changelog = fs.readFileSync(localChangelogPath, 'utf8');
+      }
+    }
+
+    // 3. Compare versions
+    const updateAvailable = currentVersion !== latestVersion;
+
+    res.json({
+      currentVersion,
+      latestVersion,
+      updateAvailable,
+      changelog: changelog || '# Changelog\n\nNo changelog data currently available.'
+    });
+  } catch (error) {
+    console.error('[Updates] Failed to check for system updates:', error);
+    res.status(500).json({ error: 'Failed to fetch update status' });
+  }
+});
+
 // Protected User Management Endpoints (Superadmin only)
 app.use('/api/users', auth.authMiddleware, auth.requireRole(['superadmin'], 'users'), userRouter);
 

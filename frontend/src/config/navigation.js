@@ -8,7 +8,8 @@ import {
   Archive,
   Users,
   Shield,
-  Bell
+  Bell,
+  Sparkles
 } from 'lucide-react';
 
 /**
@@ -115,6 +116,16 @@ export const NAV_ITEMS = [
     shortcut: '0',
     primaryMobile: false,
     roles: ['superadmin']
+  },
+  {
+    id: 'updates',
+    label: 'System Updates',
+    description: 'Live version tracking, upstream changelog & safe update procedure',
+    icon: 'Sparkles',
+    iconComponent: Sparkles,
+    shortcut: 'u',
+    primaryMobile: false,
+    roles: ['superadmin', 'operator', 'viewer']
   }
 ];
 
@@ -124,8 +135,8 @@ export const NAV_SHORTCUTS = NAV_ITEMS.reduce((acc, item) => {
 }, {});
 
 export function getNavItem(id) {
-  // Support aliases: 'telemetry' -> 'overview', 'domains' -> 'vhosts', 'vpn' -> 'network', 'wireguard' -> 'network'
-  const normalized = id === 'telemetry' ? 'overview' : id === 'domains' ? 'vhosts' : (id === 'vpn' || id === 'wireguard') ? 'network' : id;
+  // Support aliases: 'telemetry' -> 'overview', 'domains' -> 'vhosts', 'vpn' -> 'network', 'wireguard' -> 'network', 'settings' -> 'updates'
+  const normalized = id === 'telemetry' ? 'overview' : id === 'domains' ? 'vhosts' : (id === 'vpn' || id === 'wireguard') ? 'network' : id === 'settings' ? 'updates' : id;
   return NAV_ITEMS.find(item => item.id === normalized) || NAV_ITEMS[0];
 }
 

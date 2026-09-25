@@ -20,6 +20,7 @@ import BackupsView from './components/backups/BackupsView';
 import UsersView from './components/users/UsersView';
 import WireGuardView from './components/network/WireGuardView';
 import AlertsView from './components/settings/AlertsView';
+import UpdatesView from './components/settings/UpdatesView';
 import TwoFactorBanner from './components/TwoFactorBanner';
 import { AuthProvider } from './context/AuthContext';
 
@@ -210,6 +211,7 @@ export default function App() {
               telemetry={telemetry}
               connected={connected}
               onLogout={logout}
+              onSelectTab={setActiveTab}
               onRefresh={() => {
                 refreshProfile();
                 showToast('Host profile refreshed', 'info');
@@ -286,6 +288,10 @@ export default function App() {
         ) : activeTab === 'alerts' ? (
           <main className="max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-4">
             <AlertsView token={token} onShowToast={showToast} />
+          </main>
+        ) : activeTab === 'updates' || activeTab === 'settings' ? (
+          <main className="max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-4">
+            <UpdatesView token={token} onShowToast={showToast} />
           </main>
         ) : (
           <main className="max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-4">

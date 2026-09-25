@@ -5,6 +5,15 @@ All notable changes to NexusControl will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1] - 2026-09-25
+
+### Added
+- **In-App Version Control & Update Checker:** Native `GET /api/system/updates` endpoint comparing local host versions against upstream GitHub releases.
+- **Interactive Changelog Viewer:** Real-time markdown rendering of upstream release notes powered by `marked` and `DOMPurify`.
+- **Safe Update Workflow:** Explicit operational guidance and copyable terminal command for executing non-destructive updates via `/opt/NexusControl/update.sh`.
+- **Dynamic Public IP & WireGuard Endpoint:** Automatic detection of public host IP via `.env` and fallback resolvers, eliminating hardcoded development addresses.
+- **Pre-Update Backup & Guardrails:** Automated tar state snapshots prior to code pulls and installer redirection safeguards for existing installations.
+
 ## [1.0.0] - 2026-09-24
 
 ### Added

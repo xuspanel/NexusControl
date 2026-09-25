@@ -19,7 +19,7 @@ import OsBadge from './OsBadge';
 import { useAuth } from '../context/AuthContext';
 import TwoFactorModal from './TwoFactorModal';
 
-export default function HeaderProfile({ profile, telemetry, connected, onLogout, onRefresh }) {
+export default function HeaderProfile({ profile, telemetry, connected, onLogout, onRefresh, onSelectTab }) {
   const { twoFactorEnabled, refreshUser, token } = useAuth();
   const [is2faModalOpen, setIs2faModalOpen] = useState(false);
   const [copiedIp, setCopiedIp] = useState(null);
@@ -54,6 +54,15 @@ export default function HeaderProfile({ profile, telemetry, connected, onLogout,
                 <span className="px-2 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800/80 text-[11px] font-mono text-zinc-600 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-700/50">
                   {profile?.hostname || 'ubuntu-vps'}
                 </span>
+                {/* Version button linking to System Updates */}
+                <button
+                  onClick={() => onSelectTab && onSelectTab('updates')}
+                  className="px-2 py-0.5 rounded bg-emerald-500/10 hover:bg-emerald-500/20 text-[11px] font-mono text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 transition-colors flex items-center gap-1 cursor-pointer"
+                  title="View System Updates & Changelog"
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                  <span>v1.0.1</span>
+                </button>
                 {/* Live stream status */}
                 <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-mono border ${
                   connected 

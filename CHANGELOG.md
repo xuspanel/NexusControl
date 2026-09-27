@@ -5,6 +5,13 @@ All notable changes to NexusControl will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.4.0] - 2026-09-27
+
+### Added
+- **PostgreSQL Database Management (Phase 1):** Dedicated database supervisor with auto-bootstrapping `SUPERUSER` engine (`backend/postgresEngine.js`), native connection pooling, and credential persistence in `.env`.
+- **Database Catalog & Provisioning APIs:** Added `GET /api/postgres/status`, `GET /api/postgres/databases`, `POST /api/postgres/databases`, and `DELETE /api/postgres/databases/:name` endpoints with cryptographic audit logging and SQL injection guards.
+- **PostgresManager Dashboard Component:** Interactive management UI featuring cluster metrics (catalogs, disk space, active pool user), database search, quick provisioning modal, strict deletion safeguards, and graceful empty state for uninstalled environments.
+
 ## [v1.3.1] - 2026-09-27
 
 ### Fixed

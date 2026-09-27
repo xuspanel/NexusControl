@@ -10,7 +10,8 @@ import {
   Shield,
   Bell,
   Sparkles,
-  Wand2
+  Wand2,
+  Database
 } from 'lucide-react';
 
 /**
@@ -137,6 +138,16 @@ export const NAV_ITEMS = [
     shortcut: 'w',
     primaryMobile: false,
     roles: ['superadmin']
+  },
+  {
+    id: 'database',
+    label: 'PostgreSQL',
+    description: 'Postgres clusters, database catalog supervisor & Superuser pool',
+    icon: 'Database',
+    iconComponent: Database,
+    shortcut: 'd',
+    primaryMobile: false,
+    roles: ['superadmin', 'operator', 'viewer']
   }
 ];
 
@@ -146,8 +157,8 @@ export const NAV_SHORTCUTS = NAV_ITEMS.reduce((acc, item) => {
 }, {});
 
 export function getNavItem(id) {
-  // Support aliases: 'telemetry' -> 'overview', 'domains' -> 'vhosts', 'vpn' -> 'network', 'wireguard' -> 'network', 'settings' -> 'updates', 'optimizer' -> 'wizard'
-  const normalized = id === 'telemetry' ? 'overview' : id === 'domains' ? 'vhosts' : (id === 'vpn' || id === 'wireguard') ? 'network' : id === 'settings' ? 'updates' : id === 'optimizer' ? 'wizard' : id;
+  // Support aliases: 'telemetry' -> 'overview', 'domains' -> 'vhosts', 'vpn' -> 'network', 'wireguard' -> 'network', 'settings' -> 'updates', 'optimizer' -> 'wizard', 'postgres' -> 'database'
+  const normalized = id === 'telemetry' ? 'overview' : id === 'domains' ? 'vhosts' : (id === 'vpn' || id === 'wireguard') ? 'network' : id === 'settings' ? 'updates' : id === 'optimizer' ? 'wizard' : id === 'postgres' ? 'database' : id;
   return NAV_ITEMS.find(item => item.id === normalized) || NAV_ITEMS[0];
 }
 

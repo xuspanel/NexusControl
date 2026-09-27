@@ -17,6 +17,7 @@ import {
   CheckCircle2,
   Archive,
   Bell,
+  Database,
   X
 } from 'lucide-react';
 import { getNavItemsForRole } from '../../config/navigation';
@@ -155,6 +156,20 @@ export default function CommandPalette({
         roles: ['superadmin'],
         action: () => {
           onSelectTab('alerts');
+        }
+      },
+      {
+        id: 'manage_postgres',
+        module: 'database',
+        type: 'action',
+        category: 'Quick Actions',
+        label: 'Manage PostgreSQL Databases',
+        description: 'View database catalogs, provision databases & manage clusters',
+        icon: Database,
+        shortcut: 'Alt + D',
+        roles: ['superadmin', 'operator', 'viewer'],
+        action: () => {
+          onSelectTab('database');
         }
       },
       {

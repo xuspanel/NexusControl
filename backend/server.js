@@ -34,6 +34,8 @@ const wireguardRouter = require('./wireguardRouter');
 const alertRouter = require('./alertRouter');
 const osUpdates = require('./osUpdates');
 const wizardEngine = require('./wizardEngine');
+const postgresEngine = require('./postgresEngine');
+const postgresRouter = require('./postgresRouter');
 
 // Ensure system storage directories exist on boot
 trash.initTrash().then(() => console.log('[BOOT] Trash directory initialized at /opt/NexusControl/.trash')).catch(err => console.error('[BOOT ERROR] Trash init:', err));
@@ -720,9 +722,13 @@ app.use('/api/wireguard', auth.authMiddleware, auth.requireRole(['superadmin'], 
 // Protected Webhook Alerting Worker Endpoints (Superadmin only)
 app.use('/api/alerts', auth.authMiddleware, auth.requireRole(['superadmin'], 'overview'), alertRouter);
 
+// Protected PostgreSQL Database Manager Endpoints
+app.use('/api/postgres', auth.authMiddleware, postgresRouter);
+
 if (process.env.NODE_ENV !== 'test') {
   dockerEngine.startBackgroundSampling(3500);
   scheduler.initScheduler();
+  postgresEngine.initPostgresSuperuser();
 }
 
 // Health check endpoint for internal monitoring

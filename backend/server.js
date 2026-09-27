@@ -32,6 +32,7 @@ const scheduler = require('./scheduler');
 const userRouter = require('./userRouter');
 const wireguardRouter = require('./wireguardRouter');
 const alertRouter = require('./alertRouter');
+const osUpdates = require('./osUpdates');
 
 // Ensure system storage directories exist on boot
 trash.initTrash().then(() => console.log('[BOOT] Trash directory initialized at /opt/NexusControl/.trash')).catch(err => console.error('[BOOT ERROR] Trash init:', err));
@@ -542,6 +543,41 @@ app.post('/api/system/update', auth.authMiddleware, auth.requireRole(['superadmi
   } catch (error) {
     console.error('[Updates] Failed to initiate update process:', error);
     res.status(500).json({ error: 'Failed to initiate update process.' });
+  }
+});
+
+// OS System Updates: Scan available packages
+app.get('/api/system/os-packages', auth.authMiddleware, async (req, res) => {
+  try {
+    const refresh = req.query.refresh === 'true';
+    const result = await osUpdates.getAvailableUpdates({ refresh });
+    res.json(result);
+  } catch (error) {
+    console.error('[OS Updates] Error scanning packages:', error);
+    res.status(500).json({ error: error.message || 'Failed to scan OS packages.' });
+  }
+});
+
+// OS System Updates: SSE real-time streaming upgrade
+app.get('/api/system/os-packages/upgrade', auth.authMiddleware, auth.requireRole(['superadmin', 'operator'], 'overview'), (req, res) => {
+  try {
+    const packages = req.query.packages ? req.query.packages.split(',') : [];
+    const all = req.query.all === 'true';
+
+    auditLogger.logEvent({
+      action: 'OS_PACKAGES_UPGRADE_INITIATED',
+      performedBy: req.user?.username || 'admin',
+      target: all ? 'ALL_PACKAGES' : packages.join(', '),
+      details: { packages, all, ip: req.ip },
+      severity: 'WARNING'
+    });
+
+    osUpdates.streamPackageUpgrade({ packages, all }, req, res);
+  } catch (error) {
+    console.error('[OS Updates] Stream error:', error);
+    if (!res.headersSent) {
+      res.status(500).json({ error: error.message });
+    }
   }
 });
 

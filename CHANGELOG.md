@@ -5,6 +5,13 @@ All notable changes to NexusControl will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.2.0] - 2026-09-27
+
+### Added
+- **OS Package Manager & Update Scanner:** Cross-platform OS update detection supporting Ubuntu/Debian (`apt-get`) and AlmaLinux/RHEL (`dnf`) with pending package parsing via `GET /api/system/os-packages`.
+- **Real-Time Streaming SSE Upgrader:** Live Server-Sent Events execution endpoint (`GET /api/system/os-packages/upgrade`) with interactive glassmorphism terminal modal, color-coded output, and auto-scroll telemetry.
+- **Selective & Bulk Package Upgrades:** Intuitive UI table supporting individual package selection, "Select All", and "Upgrade Selected / All" workflows with zero-breakage non-interactive flags.
+
 ## [v1.1.0] - 2026-09-27
 
 ### Added

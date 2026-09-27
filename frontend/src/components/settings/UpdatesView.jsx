@@ -15,8 +15,10 @@ import {
   BookOpen,
   Info,
   Loader2,
-  AlertCircle
+  AlertCircle,
+  Package
 } from 'lucide-react';
+import OsUpdatesSection from './OsUpdatesSection';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 
@@ -28,6 +30,7 @@ export default function UpdatesView({ token, onShowToast }) {
   const [copied, setCopied] = useState(false);
 
   // In-app update execution states
+  const [activeSection, setActiveSection] = useState('os');
   const [isUpdating, setIsUpdating] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [updateStage, setUpdateStage] = useState('initiating');
@@ -228,7 +231,41 @@ export default function UpdatesView({ token, onShowToast }) {
         </div>
       </div>
 
-      {/* 2. Loading State */}
+      {/* 2. Section Selector Tabs: OS System Packages vs NexusControl Engine */}
+      <div className="flex items-center gap-2 p-1 rounded-xl bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 w-fit">
+        <button
+          onClick={() => setActiveSection('os')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+            activeSection === 'os'
+              ? 'bg-white dark:bg-zinc-800 text-purple-600 dark:text-purple-400 shadow-xs'
+              : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
+          }`}
+        >
+          <Package className="w-3.5 h-3.5" />
+          <span>OS System Packages</span>
+        </button>
+
+        <button
+          onClick={() => setActiveSection('platform')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+            activeSection === 'platform'
+              ? 'bg-white dark:bg-zinc-800 text-emerald-600 dark:text-emerald-400 shadow-xs'
+              : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
+          }`}
+        >
+          <Sparkles className="w-3.5 h-3.5" />
+          <span>NexusControl Engine</span>
+          {updateData?.updateAvailable && (
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+          )}
+        </button>
+      </div>
+
+      {activeSection === 'os' ? (
+        <OsUpdatesSection token={token} onShowToast={onShowToast} />
+      ) : (
+        <>
+          {/* 2. Loading State */}
       {loading && !updateData && (
         <div className="bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800/80 rounded-xl p-12 text-center">
           <RefreshCw className="w-8 h-8 text-emerald-500 animate-spin mx-auto mb-3" />
@@ -444,6 +481,8 @@ export default function UpdatesView({ token, onShowToast }) {
           )}
         </div>
       </div>
+      </>
+      )}
 
       {/* Confirmation Modal */}
       {showConfirmModal && (

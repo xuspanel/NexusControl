@@ -67,7 +67,8 @@ if ! (cd /opt/NexusControl/backend && npm install --omit=dev); then
 fi
 
 echo "🎨 Rebuilding Frontend UI..."
-if ! (cd /opt/NexusControl/frontend && npm install && npm run build); then
+# Explicitly include dev dependencies for the build step, bypassing NODE_ENV=production
+if ! (cd /opt/NexusControl/frontend && npm install --include=dev && npm run build); then
     echo "❌ ERROR: Frontend build failed! Aborting update to prevent a broken state."
     echo "Please check the server memory or run the build manually to diagnose."
     exit 1

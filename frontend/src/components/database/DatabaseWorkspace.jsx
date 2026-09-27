@@ -265,7 +265,10 @@ export default function DatabaseWorkspace({ token, dbName, onBack, onShowToast }
         dbName={dbName}
         tableName={selectedTable}
         schema={selectedSchema}
-        onBack={() => setCurrentView('overview')}
+        onBack={() => {
+          setCurrentView('overview');
+          fetchMetadata(false);
+        }}
         onShowToast={onShowToast}
       />
     );

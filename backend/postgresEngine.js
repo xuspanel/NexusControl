@@ -856,6 +856,512 @@ function streamDatabaseDump(dbName, type = 'full', res) {
 }
 
 /**
+ * Parses CSV text compliant with RFC 4180 (zero external dependencies)
+ */
+function parseCsv(text) {
+  const lines = [];
+  let row = [];
+  let cell = '';
+  let inQuotes = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    const next = text[i + 1];
+
+    if (inQuotes) {
+      if (c === '"') {
+        if (next === '"') {
+          cell += '"';
+          i++;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        cell += c;
+      }
+    } else {
+      if (c === '"') {
+        inQuotes = true;
+      } else if (c === ',') {
+        row.push(cell.trim());
+        cell = '';
+      } else if (c === '\r') {
+        // ignore carriage return
+      } else if (c === '\n') {
+        row.push(cell.trim());
+        if (row.some((val) => val !== '')) {
+          lines.push(row);
+        }
+        row = [];
+        cell = '';
+      } else {
+        cell += c;
+      }
+    }
+  }
+
+  if (cell !== '' || row.length > 0) {
+    row.push(cell.trim());
+    if (row.some((val) => val !== '')) {
+      lines.push(row);
+    }
+  }
+
+  return lines;
+}
+
+/**
+ * Inserts a single new row into a table using parameterized values
+ */
+async function insertTableRow(dbName, tableName, { schema = 'public', row }) {
+  const cleanDb = validateIdentifier(dbName);
+  const cleanTable = validateIdentifier(tableName);
+  const cleanSchema = validateIdentifier(schema);
+  const pool = getDbPool(cleanDb);
+
+  if (!row || typeof row !== 'object' || Object.keys(row).length === 0) {
+    throw new Error('Row data is required for insert.');
+  }
+
+  const cols = Object.keys(row).map((c) => validateIdentifier(c));
+  const colNames = cols.map((c) => `"${c}"`).join(', ');
+  const placeholders = cols.map((_, i) => `$${i + 1}`).join(', ');
+  const values = cols.map((c) => {
+    const val = row[c];
+    if (val === '' || val === undefined) return null;
+    return val;
+  });
+
+  const query = `INSERT INTO "${cleanSchema}"."${cleanTable}" (${colNames}) VALUES (${placeholders}) RETURNING *;`;
+  const res = await pool.query(query, values);
+  return res.rows[0];
+}
+
+/**
+ * Generates an SQL file containing INSERT INTO statements for all rows in a table
+ */
+async function exportTableSql(dbName, tableName, schema = 'public') {
+  const cleanDb = validateIdentifier(dbName);
+  const cleanTable = validateIdentifier(tableName);
+  const cleanSchema = validateIdentifier(schema);
+  const pool = getDbPool(cleanDb);
+
+  const res = await pool.query(`SELECT * FROM "${cleanSchema}"."${cleanTable}";`);
+
+  let sql = `-- NexusControl PostgreSQL Table Data Export\n`;
+  sql += `-- Database: ${cleanDb}\n`;
+  sql += `-- Table: "${cleanSchema}"."${cleanTable}"\n`;
+  sql += `-- Exported At: ${new Date().toISOString()}\n`;
+  sql += `-- Total Rows: ${res.rows.length}\n\n`;
+
+  if (res.rows.length === 0) {
+    sql += `-- (Table contains 0 rows)\n`;
+    return sql;
+  }
+
+  const columns = Object.keys(res.rows[0]);
+  const colList = columns.map((c) => `"${c}"`).join(', ');
+
+  for (const row of res.rows) {
+    const values = columns.map((col) => {
+      const val = row[col];
+      if (val === null || val === undefined) return 'NULL';
+      if (typeof val === 'number') return String(val);
+      if (typeof val === 'boolean') return val ? 'TRUE' : 'FALSE';
+      if (val instanceof Date) return `'${val.toISOString()}'`;
+      if (typeof val === 'object') {
+        return `'${JSON.stringify(val).replace(/'/g, "''")}'`;
+      }
+      return `'${String(val).replace(/'/g, "''")}'`;
+    });
+    sql += `INSERT INTO "${cleanSchema}"."${cleanTable}" (${colList}) VALUES (${values.join(', ')});\n`;
+  }
+
+  return sql;
+}
+
+/**
+ * Imports CSV text or SQL text into a table within a single transaction
+ */
+async function importTableData(dbName, tableName, { schema = 'public', format = 'sql', content }) {
+  const cleanDb = validateIdentifier(dbName);
+  const cleanTable = validateIdentifier(tableName);
+  const cleanSchema = validateIdentifier(schema);
+  const pool = getDbPool(cleanDb);
+
+  if (!content || typeof content !== 'string') {
+    throw new Error('Import content is required.');
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    if (format === 'sql') {
+      await client.query(content);
+      await client.query('COMMIT');
+      return { imported: true, format: 'sql' };
+    } else if (format === 'csv') {
+      const records = parseCsv(content);
+      if (records.length < 2) {
+        throw new Error('CSV must contain a header row and at least one data row.');
+      }
+
+      const headers = records[0].map((h) => validateIdentifier(h.replace(/^["']|["']$/g, '')));
+      const colNames = headers.map((h) => `"${h}"`).join(', ');
+
+      let count = 0;
+      for (let i = 1; i < records.length; i++) {
+        const row = records[i];
+        if (row.length === 0 || (row.length === 1 && row[0] === '')) continue;
+
+        const placeholders = headers.map((_, idx) => `$${idx + 1}`).join(', ');
+        const values = headers.map((_, idx) => {
+          const val = row[idx];
+          if (val === undefined || val === '' || val === 'NULL' || val === 'null') return null;
+          return val;
+        });
+
+        await client.query(
+          `INSERT INTO "${cleanSchema}"."${cleanTable}" (${colNames}) VALUES (${placeholders});`,
+          values
+        );
+        count++;
+      }
+
+      await client.query('COMMIT');
+      return { imported: true, format: 'csv', count };
+    } else {
+      throw new Error(`Unsupported import format: "${format}". Must be "sql" or "csv".`);
+    }
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Renames a table
+ */
+async function renameTable(dbName, oldName, newName, schema = 'public') {
+  const cleanDb = validateIdentifier(dbName);
+  const cleanOld = validateIdentifier(oldName);
+  const cleanNew = validateIdentifier(newName);
+  const cleanSchema = validateIdentifier(schema);
+  const pool = getDbPool(cleanDb);
+
+  await pool.query(`ALTER TABLE "${cleanSchema}"."${cleanOld}" RENAME TO "${cleanNew}";`);
+  return { success: true, oldName: cleanOld, newName: cleanNew };
+}
+
+/**
+ * Duplicates a table with structure and data
+ */
+async function duplicateTable(dbName, oldName, newName, schema = 'public') {
+  const cleanDb = validateIdentifier(dbName);
+  const cleanOld = validateIdentifier(oldName);
+  const cleanNew = validateIdentifier(newName);
+  const cleanSchema = validateIdentifier(schema);
+  const pool = getDbPool(cleanDb);
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      `CREATE TABLE "${cleanSchema}"."${cleanNew}" (LIKE "${cleanSchema}"."${cleanOld}" INCLUDING ALL);`
+    );
+    await client.query(
+      `INSERT INTO "${cleanSchema}"."${cleanNew}" SELECT * FROM "${cleanSchema}"."${cleanOld}";`
+    );
+    await client.query('COMMIT');
+    return { success: true, duplicatedFrom: cleanOld, tableName: cleanNew };
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Truncates all rows in a table and resets identity counter
+ */
+async function truncateTable(dbName, tableName, schema = 'public') {
+  const cleanDb = validateIdentifier(dbName);
+  const cleanTable = validateIdentifier(tableName);
+  const cleanSchema = validateIdentifier(schema);
+  const pool = getDbPool(cleanDb);
+
+  await pool.query(`TRUNCATE TABLE "${cleanSchema}"."${cleanTable}" RESTART IDENTITY;`);
+  return { success: true, table: cleanTable };
+}
+
+/**
+ * Runs VACUUM ANALYZE on a table (must execute outside transaction)
+ */
+async function vacuumTable(dbName, tableName, schema = 'public') {
+  const cleanDb = validateIdentifier(dbName);
+  const cleanTable = validateIdentifier(tableName);
+  const cleanSchema = validateIdentifier(schema);
+  const pool = getDbPool(cleanDb);
+
+  await pool.query(`VACUUM ANALYZE "${cleanSchema}"."${cleanTable}";`);
+  return { success: true, table: cleanTable };
+}
+
+/**
+ * Sets or removes comment on a table
+ */
+async function commentTable(dbName, tableName, comment, schema = 'public') {
+  const cleanDb = validateIdentifier(dbName);
+  const cleanTable = validateIdentifier(tableName);
+  const cleanSchema = validateIdentifier(schema);
+  const pool = getDbPool(cleanDb);
+
+  const safeComment =
+    comment === null || comment === undefined || comment === ''
+      ? 'NULL'
+      : `'${String(comment).replace(/'/g, "''")}'`;
+
+  await pool.query(`COMMENT ON TABLE "${cleanSchema}"."${cleanTable}" IS ${safeComment};`);
+  return { success: true, table: cleanTable, comment };
+}
+
+/**
+ * Advanced Schema Mutation Engine: executes a batch of column operations and/or table recreation
+ */
+async function batchSchemaMutation(
+  dbName,
+  tableName,
+  { schema = 'public', operations = [], reorder = false, newColumns = [] }
+) {
+  const cleanDb = validateIdentifier(dbName);
+  const cleanTable = validateIdentifier(tableName);
+  const cleanSchema = validateIdentifier(schema);
+  const pool = getDbPool(cleanDb);
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // 1. If reordering is requested, we recreate the table to update physical column order
+    if (reorder && Array.isArray(newColumns) && newColumns.length > 0) {
+      // Query existing non-PK indexes to preserve them
+      const idxRes = await client.query(
+        `SELECT indexname, indexdef FROM pg_indexes WHERE schemaname = $1 AND tablename = $2 AND indexname NOT LIKE '%_pkey';`,
+        [cleanSchema, cleanTable]
+      );
+      const existingIndexes = idxRes.rows;
+
+      const tempOld = `${cleanTable}_old_${Date.now()}`;
+      await client.query(`ALTER TABLE "${cleanSchema}"."${cleanTable}" RENAME TO "${tempOld}";`);
+
+      // Rename sequences owned by the old table so new table doesn't conflict with existing sequence names
+      try {
+        const seqRes = await client.query(
+          `SELECT c.relname AS seq_name
+           FROM pg_class c
+           JOIN pg_depend d ON d.objid = c.oid
+           JOIN pg_class t ON t.oid = d.refobjid
+           JOIN pg_namespace n ON n.oid = t.relnamespace
+           WHERE c.relkind = 'S' AND t.relname = $1 AND n.nspname = $2;`,
+          [tempOld, cleanSchema]
+        );
+        for (const s of seqRes.rows) {
+          const oldSeq = s.seq_name;
+          const newSeq = `${oldSeq}_old_${Date.now()}`;
+          await client.query(`ALTER SEQUENCE "${cleanSchema}"."${oldSeq}" RENAME TO "${newSeq}";`);
+        }
+      } catch (_) {
+        // Fallback if sequence query fails
+      }
+
+      // Construct columns definition
+      const colDefs = [];
+      const pkCols = [];
+      const validCols = [];
+
+      for (const col of newColumns) {
+        if (!col.name) continue;
+        const colName = validateIdentifier(col.name);
+        validCols.push(colName);
+        const colType = col.type || 'varchar(255)';
+        const isSerial = colType.toLowerCase() === 'serial' || colType.toLowerCase() === 'bigserial';
+        let def = `"${colName}" ${colType}`;
+        if (!isSerial && (col.isNullable === false || col.notNull === true)) {
+          def += ' NOT NULL';
+        }
+        if (!isSerial && col.defaultValue !== undefined && col.defaultValue !== null && col.defaultValue !== '') {
+          def += ` DEFAULT ${col.defaultValue}`;
+        }
+        if (col.isPrimaryKey || col.primaryKey) {
+          pkCols.push(`"${colName}"`);
+        }
+        colDefs.push(def);
+      }
+
+      if (pkCols.length > 0) {
+        colDefs.push(`PRIMARY KEY (${pkCols.join(', ')})`);
+      }
+
+      await client.query(`CREATE TABLE "${cleanSchema}"."${cleanTable}" (\n  ${colDefs.join(',\n  ')}\n);`);
+
+      // Copy matching data from tempOld to cleanTable
+      const oldColsRes = await client.query(
+        `SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2;`,
+        [cleanSchema, tempOld]
+      );
+      const oldCols = new Set(oldColsRes.rows.map((r) => r.column_name));
+      const sharedCols = validCols.filter((c) => oldCols.has(c));
+
+      if (sharedCols.length > 0) {
+        const sharedColNames = sharedCols.map((c) => `"${c}"`).join(', ');
+        await client.query(
+          `INSERT INTO "${cleanSchema}"."${cleanTable}" (${sharedColNames}) SELECT ${sharedColNames} FROM "${cleanSchema}"."${tempOld}";`
+        );
+      }
+
+      // 4. Drop temporary old table first to release index names and locks
+      await client.query(`DROP TABLE "${cleanSchema}"."${tempOld}" CASCADE;`);
+
+      // 5. Recreate custom indexes
+      for (const idx of existingIndexes) {
+        try {
+          const indexSql = idx.indexdef
+            .replace(new RegExp(`"${tempOld}"`, 'g'), `"${cleanTable}"`)
+            .replace(new RegExp(` ${tempOld} `, 'g'), ` ${cleanTable} `);
+          await client.query(indexSql);
+        } catch (_) {
+          // Ignore if index references a column no longer in the schema
+        }
+      }
+
+      // 6. Synchronize sequence values for serial columns
+      for (const col of newColumns) {
+        if (col.type && (col.type.toLowerCase() === 'serial' || col.type.toLowerCase() === 'bigserial')) {
+          try {
+            const colName = validateIdentifier(col.name);
+            await client.query(
+              `SELECT setval(pg_get_serial_sequence('"${cleanSchema}"."${cleanTable}"', '${colName}'), COALESCE(MAX("${colName}"), 1)) FROM "${cleanSchema}"."${cleanTable}";`
+            );
+          } catch (_) {}
+        }
+      }
+
+      // 7. Add column comments
+      for (const col of newColumns) {
+        if (col.name && col.comment) {
+          const colName = validateIdentifier(col.name);
+          const safeComment = `'${String(col.comment).replace(/'/g, "''")}'`;
+          await client.query(
+            `COMMENT ON COLUMN "${cleanSchema}"."${cleanTable}"."${colName}" IS ${safeComment};`
+          );
+        }
+      }
+    }
+
+    // 2. Execute any discrete operations
+    if (Array.isArray(operations) && operations.length > 0) {
+      for (const op of operations) {
+        if (!op || !op.type) continue;
+
+        switch (op.type) {
+          case 'drop_column': {
+            const col = validateIdentifier(op.column);
+            await client.query(`ALTER TABLE "${cleanSchema}"."${cleanTable}" DROP COLUMN "${col}" CASCADE;`);
+            break;
+          }
+          case 'add_column': {
+            const col = validateIdentifier(op.column);
+            const type = op.dataType || op.typeDef || 'varchar(255)';
+            let ddl = `ALTER TABLE "${cleanSchema}"."${cleanTable}" ADD COLUMN "${col}" ${type}`;
+            if (op.isNullable === false || op.notNull === true) {
+              ddl += ' NOT NULL';
+            }
+            if (op.defaultValue !== undefined && op.defaultValue !== null && op.defaultValue !== '') {
+              ddl += ` DEFAULT ${op.defaultValue}`;
+            }
+            await client.query(`${ddl};`);
+
+            if (op.comment) {
+              const safeComment = `'${String(op.comment).replace(/'/g, "''")}'`;
+              await client.query(
+                `COMMENT ON COLUMN "${cleanSchema}"."${cleanTable}"."${col}" IS ${safeComment};`
+              );
+            }
+            break;
+          }
+          case 'alter_column': {
+            let col = validateIdentifier(op.column);
+
+            if (op.newName && op.newName !== col) {
+              const newCol = validateIdentifier(op.newName);
+              await client.query(
+                `ALTER TABLE "${cleanSchema}"."${cleanTable}" RENAME COLUMN "${col}" TO "${newCol}";`
+              );
+              col = newCol;
+            }
+
+            if (op.dataType) {
+              await client.query(
+                `ALTER TABLE "${cleanSchema}"."${cleanTable}" ALTER COLUMN "${col}" TYPE ${op.dataType} USING "${col}"::${op.dataType};`
+              );
+            }
+
+            if (op.isNullable !== undefined) {
+              const nullAction = op.isNullable ? 'DROP NOT NULL' : 'SET NOT NULL';
+              await client.query(`ALTER TABLE "${cleanSchema}"."${cleanTable}" ALTER COLUMN "${col}" ${nullAction};`);
+            }
+
+            if (op.dropDefault || op.defaultValue === null || op.defaultValue === '') {
+              await client.query(`ALTER TABLE "${cleanSchema}"."${cleanTable}" ALTER COLUMN "${col}" DROP DEFAULT;`);
+            } else if (op.defaultValue !== undefined) {
+              await client.query(
+                `ALTER TABLE "${cleanSchema}"."${cleanTable}" ALTER COLUMN "${col}" SET DEFAULT ${op.defaultValue};`
+              );
+            }
+
+            if (op.comment !== undefined) {
+              const safeComment =
+                op.comment === null || op.comment === ''
+                  ? 'NULL'
+                  : `'${String(op.comment).replace(/'/g, "''")}'`;
+              await client.query(
+                `COMMENT ON COLUMN "${cleanSchema}"."${cleanTable}"."${col}" IS ${safeComment};`
+              );
+            }
+            break;
+          }
+          case 'column_comment': {
+            const col = validateIdentifier(op.column);
+            const safeComment =
+              op.comment === null || op.comment === ''
+                ? 'NULL'
+                : `'${String(op.comment).replace(/'/g, "''")}'`;
+            await client.query(
+              `COMMENT ON COLUMN "${cleanSchema}"."${cleanTable}"."${col}" IS ${safeComment};`
+            );
+            break;
+          }
+          default:
+            console.warn(`[postgresEngine] Unknown schema operation: ${op.type}`);
+        }
+      }
+    }
+
+    await client.query('COMMIT');
+    return { success: true, table: cleanTable };
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+/**
  * Cleanly closes all open pools
  */
 async function closeAllPools() {
@@ -894,11 +1400,21 @@ module.exports = {
   getTableData,
   updateTableRow,
   deleteTableRow,
+  insertTableRow,
+  exportTableSql,
+  importTableData,
+  renameTable,
+  duplicateTable,
+  truncateTable,
+  vacuumTable,
+  commentTable,
+  batchSchemaMutation,
   executeQuery,
   globalSearch,
   streamDatabaseDump,
   closePool: closeAllPools,
   closeAllPools,
   isPsqlInstalled,
-  validateIdentifier
+  validateIdentifier,
+  parseCsv
 };

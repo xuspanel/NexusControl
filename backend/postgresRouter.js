@@ -378,8 +378,251 @@ router.delete('/databases/:dbName/tables/:tableName/data', requireRole(['superad
   }
 });
 
+/**
+ * POST /api/postgres/databases/:dbName/tables/:tableName/data/row
+ * Inserts a new row with parameterized values
+ */
+router.post('/databases/:dbName/tables/:tableName/data/row', requireRole(['superadmin', 'operator'], 'database'), async (req, res) => {
+  try {
+    const { schema = 'public', row } = req.body || {};
+    const newRow = await postgresEngine.insertTableRow(req.params.dbName, req.params.tableName, {
+      schema,
+      row
+    });
+
+    auditLogger.logEvent({
+      action: 'POSTGRES_ROW_INSERT',
+      user: req.user?.username || 'system',
+      ip: req.clientIp || req.ip,
+      userAgent: req.headers['user-agent'],
+      targetResource: `${req.params.dbName}.${schema}.${req.params.tableName}`,
+      payload: { database: req.params.dbName, table: req.params.tableName, row: newRow },
+      severity: 'INFO'
+    });
+
+    res.status(201).json({ success: true, message: 'Row inserted successfully.', row: newRow });
+  } catch (err) {
+    res.status(err.message.includes('required') || err.message.includes('Invalid') ? 400 : 500).json({
+      success: false,
+      error: err.message
+    });
+  }
+});
+
+/**
+ * GET /api/postgres/databases/:dbName/tables/:tableName/export/sql
+ * Generates and downloads SQL INSERT statements for table data
+ */
+router.get('/databases/:dbName/tables/:tableName/export/sql', requireRole(['superadmin', 'operator', 'viewer'], 'database'), async (req, res) => {
+  try {
+    const { schema = 'public' } = req.query;
+    const sqlContent = await postgresEngine.exportTableSql(req.params.dbName, req.params.tableName, schema);
+
+    res.setHeader('Content-Type', 'application/sql');
+    res.setHeader('Content-Disposition', `attachment; filename="${req.params.tableName}_export.sql"`);
+    res.send(sqlContent);
+  } catch (err) {
+    if (!res.headersSent) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  }
+});
+
+/**
+ * POST /api/postgres/databases/:dbName/tables/:tableName/import
+ * Imports CSV text or raw SQL text into the table
+ */
+router.post('/databases/:dbName/tables/:tableName/import', requireRole(['superadmin', 'operator'], 'database'), async (req, res) => {
+  try {
+    const { schema = 'public', format = 'sql', content } = req.body || {};
+    const result = await postgresEngine.importTableData(req.params.dbName, req.params.tableName, {
+      schema,
+      format,
+      content
+    });
+
+    auditLogger.logEvent({
+      action: 'POSTGRES_DATA_IMPORT',
+      user: req.user?.username || 'system',
+      ip: req.clientIp || req.ip,
+      userAgent: req.headers['user-agent'],
+      targetResource: `${req.params.dbName}.${schema}.${req.params.tableName}`,
+      payload: { database: req.params.dbName, table: req.params.tableName, format, count: result.count },
+      severity: 'WARNING'
+    });
+
+    res.json({ success: true, message: 'Data imported successfully.', ...result });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
 // ==========================================
-// E. SQL Terminal & Global Search
+// E. Table Maintenance Operations
+// ==========================================
+
+/**
+ * PUT /api/postgres/databases/:dbName/tables/:tableName/rename
+ * Renames table
+ */
+router.put('/databases/:dbName/tables/:tableName/rename', requireRole(['superadmin', 'operator'], 'database'), async (req, res) => {
+  try {
+    const { schema = 'public', newName } = req.body || {};
+    const result = await postgresEngine.renameTable(req.params.dbName, req.params.tableName, newName, schema);
+
+    auditLogger.logEvent({
+      action: 'POSTGRES_TABLE_RENAME',
+      user: req.user?.username || 'system',
+      ip: req.clientIp || req.ip,
+      userAgent: req.headers['user-agent'],
+      targetResource: `${req.params.dbName}.${schema}.${req.params.tableName}`,
+      payload: { database: req.params.dbName, oldName: req.params.tableName, newName },
+      severity: 'WARNING'
+    });
+
+    res.json({ success: true, message: `Table renamed to "${newName}".`, ...result });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/postgres/databases/:dbName/tables/:tableName/duplicate
+ * Duplicates table with structure and data
+ */
+router.post('/databases/:dbName/tables/:tableName/duplicate', requireRole(['superadmin', 'operator'], 'database'), async (req, res) => {
+  try {
+    const { schema = 'public', newName } = req.body || {};
+    const result = await postgresEngine.duplicateTable(req.params.dbName, req.params.tableName, newName, schema);
+
+    auditLogger.logEvent({
+      action: 'POSTGRES_TABLE_DUPLICATE',
+      user: req.user?.username || 'system',
+      ip: req.clientIp || req.ip,
+      userAgent: req.headers['user-agent'],
+      targetResource: `${req.params.dbName}.${schema}.${newName}`,
+      payload: { database: req.params.dbName, sourceTable: req.params.tableName, newTable: newName },
+      severity: 'INFO'
+    });
+
+    res.status(201).json({ success: true, message: `Table duplicated as "${newName}".`, ...result });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/postgres/databases/:dbName/tables/:tableName/truncate
+ * Truncates table and restarts identity
+ */
+router.post('/databases/:dbName/tables/:tableName/truncate', requireRole(['superadmin', 'operator'], 'database'), async (req, res) => {
+  try {
+    const { schema = 'public' } = req.body || {};
+    const result = await postgresEngine.truncateTable(req.params.dbName, req.params.tableName, schema);
+
+    auditLogger.logEvent({
+      action: 'POSTGRES_TABLE_TRUNCATE',
+      user: req.user?.username || 'system',
+      ip: req.clientIp || req.ip,
+      userAgent: req.headers['user-agent'],
+      targetResource: `${req.params.dbName}.${schema}.${req.params.tableName}`,
+      payload: { database: req.params.dbName, table: req.params.tableName },
+      severity: 'WARNING'
+    });
+
+    res.json({ success: true, message: `Table "${req.params.tableName}" truncated.`, ...result });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/postgres/databases/:dbName/tables/:tableName/vacuum
+ * Runs VACUUM ANALYZE on table
+ */
+router.post('/databases/:dbName/tables/:tableName/vacuum', requireRole(['superadmin', 'operator'], 'database'), async (req, res) => {
+  try {
+    const { schema = 'public' } = req.body || {};
+    const result = await postgresEngine.vacuumTable(req.params.dbName, req.params.tableName, schema);
+
+    auditLogger.logEvent({
+      action: 'POSTGRES_TABLE_VACUUM',
+      user: req.user?.username || 'system',
+      ip: req.clientIp || req.ip,
+      userAgent: req.headers['user-agent'],
+      targetResource: `${req.params.dbName}.${schema}.${req.params.tableName}`,
+      payload: { database: req.params.dbName, table: req.params.tableName },
+      severity: 'INFO'
+    });
+
+    res.json({ success: true, message: `VACUUM ANALYZE completed on "${req.params.tableName}".`, ...result });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * PUT /api/postgres/databases/:dbName/tables/:tableName/comment
+ * Updates or removes table comment
+ */
+router.put('/databases/:dbName/tables/:tableName/comment', requireRole(['superadmin', 'operator'], 'database'), async (req, res) => {
+  try {
+    const { schema = 'public', comment } = req.body || {};
+    const result = await postgresEngine.commentTable(req.params.dbName, req.params.tableName, comment, schema);
+
+    auditLogger.logEvent({
+      action: 'POSTGRES_TABLE_COMMENT',
+      user: req.user?.username || 'system',
+      ip: req.clientIp || req.ip,
+      userAgent: req.headers['user-agent'],
+      targetResource: `${req.params.dbName}.${schema}.${req.params.tableName}`,
+      payload: { database: req.params.dbName, table: req.params.tableName, comment },
+      severity: 'INFO'
+    });
+
+    res.json({ success: true, message: 'Table comment updated.', ...result });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * PATCH /api/postgres/databases/:dbName/tables/:tableName/schema/batch
+ * Advanced Schema Mutation Engine: handles column additions, alterations, drops, and reorder table recreation
+ */
+router.patch('/databases/:dbName/tables/:tableName/schema/batch', requireRole(['superadmin', 'operator'], 'database'), async (req, res) => {
+  try {
+    const { schema = 'public', operations = [], reorder = false, newColumns = [] } = req.body || {};
+    const result = await postgresEngine.batchSchemaMutation(req.params.dbName, req.params.tableName, {
+      schema,
+      operations,
+      reorder,
+      newColumns
+    });
+
+    auditLogger.logEvent({
+      action: 'POSTGRES_SCHEMA_BATCH_MUTATION',
+      user: req.user?.username || 'system',
+      ip: req.clientIp || req.ip,
+      userAgent: req.headers['user-agent'],
+      targetResource: `${req.params.dbName}.${schema}.${req.params.tableName}`,
+      payload: {
+        database: req.params.dbName,
+        table: req.params.tableName,
+        operationsCount: operations.length,
+        reordered: reorder
+      },
+      severity: 'WARNING'
+    });
+
+    res.json({ success: true, message: 'Schema batch modifications applied successfully.', ...result });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// ==========================================
+// F. SQL Terminal & Global Search
 // ==========================================
 
 /**

@@ -288,6 +288,145 @@ describe('PostgreSQL Database Management Integration Test Suite (Phase 1 & Phase
       }
     });
 
+    test('POST /api/postgres/databases/:dbName/tables/:tableName/data/row inserts row', async () => {
+      if (postgresEngine.isPsqlInstalled()) {
+        const res = await request(app)
+          .post(`/api/postgres/databases/${testDbName}/tables/users_test/data/row`)
+          .set('Authorization', 'Bearer test-token')
+          .set('x-test-role', 'superadmin')
+          .send({ row: { email: 'david@nexus.org', bio: 'DevOps Lead' } });
+
+        expect(res.status).toBe(201);
+        expect(res.body.success).toBe(true);
+        expect(res.body.row.email).toBe('david@nexus.org');
+      }
+    });
+
+    test('GET /api/postgres/databases/:dbName/tables/:tableName/export/sql returns SQL dump', async () => {
+      if (postgresEngine.isPsqlInstalled()) {
+        const res = await request(app)
+          .get(`/api/postgres/databases/${testDbName}/tables/users_test/export/sql`)
+          .set('Authorization', 'Bearer test-token')
+          .set('x-test-role', 'superadmin');
+
+        expect(res.status).toBe(200);
+        expect(res.headers['content-type']).toContain('application/sql');
+        expect(res.text).toContain('INSERT INTO "public"."users_test"');
+      }
+    });
+
+    test('POST /api/postgres/databases/:dbName/tables/:tableName/import handles CSV import', async () => {
+      if (postgresEngine.isPsqlInstalled()) {
+        const csvData = `email,bio\neva@nexus.org,"Security Researcher"\nfrank@nexus.org,"Database Architect"`;
+        const res = await request(app)
+          .post(`/api/postgres/databases/${testDbName}/tables/users_test/import`)
+          .set('Authorization', 'Bearer test-token')
+          .set('x-test-role', 'superadmin')
+          .send({ format: 'csv', content: csvData });
+
+        expect(res.status).toBe(200);
+        expect(res.body.success).toBe(true);
+        expect(res.body.count).toBe(2);
+      }
+    });
+
+    test('POST /api/postgres/databases/:dbName/tables/:tableName/duplicate and rename maintenance ops', async () => {
+      if (postgresEngine.isPsqlInstalled()) {
+        // 1. Duplicate
+        const dupRes = await request(app)
+          .post(`/api/postgres/databases/${testDbName}/tables/users_test/duplicate`)
+          .set('Authorization', 'Bearer test-token')
+          .set('x-test-role', 'superadmin')
+          .send({ newName: 'users_dup' });
+
+        expect(dupRes.status).toBe(201);
+        expect(dupRes.body.success).toBe(true);
+
+        // 2. Rename
+        const renRes = await request(app)
+          .put(`/api/postgres/databases/${testDbName}/tables/users_dup/rename`)
+          .set('Authorization', 'Bearer test-token')
+          .set('x-test-role', 'superadmin')
+          .send({ newName: 'users_renamed' });
+
+        expect(renRes.status).toBe(200);
+        expect(renRes.body.success).toBe(true);
+
+        // 3. Comment
+        const commRes = await request(app)
+          .put(`/api/postgres/databases/${testDbName}/tables/users_renamed/comment`)
+          .set('Authorization', 'Bearer test-token')
+          .set('x-test-role', 'superadmin')
+          .send({ comment: 'Archived duplicate table' });
+
+        expect(commRes.status).toBe(200);
+        expect(commRes.body.success).toBe(true);
+
+        // 4. Vacuum
+        const vacRes = await request(app)
+          .post(`/api/postgres/databases/${testDbName}/tables/users_renamed/vacuum`)
+          .set('Authorization', 'Bearer test-token')
+          .set('x-test-role', 'superadmin');
+
+        expect(vacRes.status).toBe(200);
+        expect(vacRes.body.success).toBe(true);
+
+        // 5. Truncate
+        const truncRes = await request(app)
+          .post(`/api/postgres/databases/${testDbName}/tables/users_renamed/truncate`)
+          .set('Authorization', 'Bearer test-token')
+          .set('x-test-role', 'superadmin');
+
+        expect(truncRes.status).toBe(200);
+        expect(truncRes.body.success).toBe(true);
+      }
+    });
+
+    test('PATCH /api/postgres/databases/:dbName/tables/:tableName/schema/batch executes schema mutations and reordering', async () => {
+      if (postgresEngine.isPsqlInstalled()) {
+        // 1. Add column
+        const addRes = await request(app)
+          .patch(`/api/postgres/databases/${testDbName}/tables/users_test/schema/batch`)
+          .set('Authorization', 'Bearer test-token')
+          .set('x-test-role', 'superadmin')
+          .send({
+            operations: [
+              { type: 'add_column', column: 'is_active', dataType: 'boolean', defaultValue: 'true' }
+            ]
+          });
+
+        expect(addRes.status).toBe(200);
+        expect(addRes.body.success).toBe(true);
+
+        // 2. Reorder columns via table recreation
+        const reorderRes = await request(app)
+          .patch(`/api/postgres/databases/${testDbName}/tables/users_test/schema/batch`)
+          .set('Authorization', 'Bearer test-token')
+          .set('x-test-role', 'superadmin')
+          .send({
+            reorder: true,
+            newColumns: [
+              { name: 'email', type: 'varchar(255)', isNullable: false },
+              { name: 'id', type: 'serial', isPrimaryKey: true },
+              { name: 'bio', type: 'text', isNullable: true },
+              { name: 'is_active', type: 'boolean', defaultValue: 'true' }
+            ]
+          });
+
+        expect(reorderRes.status).toBe(200);
+        expect(reorderRes.body.success).toBe(true);
+
+        // Check that column order was modified
+        const configRes = await request(app)
+          .get(`/api/postgres/databases/${testDbName}/tables/users_test/config`)
+          .set('Authorization', 'Bearer test-token')
+          .set('x-test-role', 'superadmin');
+
+        expect(configRes.status).toBe(200);
+        expect(configRes.body.columns[0].column_name).toBe('email');
+      }
+    });
+
     test('Viewer role is forbidden from POST /api/postgres/databases', async () => {
       const res = await request(app)
         .post('/api/postgres/databases')

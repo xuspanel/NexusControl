@@ -5,6 +5,15 @@ All notable changes to NexusControl will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.6.0] - 2026-09-27
+
+### Added
+- **Added:** Phase 3 of PostgreSQL Engine with Data Import/Export, Table Maintenance (Vacuum/Truncate/Copy), and an Interactive Schema Builder with batch-undo and column reordering.
+- **Data Import & Export Engines:** Added `POST /api/postgres/databases/:dbName/tables/:tableName/data/row` for parameterized single-row insertions, `GET .../export/sql` streaming SQL INSERT statements, and `POST .../import` executing transactional CSV/SQL batch imports.
+- **Table Maintenance Operations:** Added endpoints for table rename (`PUT /rename`), table duplicate (`POST /duplicate`), safe truncation with identity restart (`POST /truncate`), `VACUUM ANALYZE` (`POST /vacuum`), and table comments (`PUT /comment`).
+- **Advanced Schema Mutation Engine:** Added `PATCH /api/postgres/databases/:dbName/tables/:tableName/schema/batch` supporting batch drops, additions, alterations, and physical column reordering via transactional table recreation with sequence and index preservation.
+- **Interactive Schema Builder (Config View):** Visual interactive schema editor in `TableDataGrid.jsx` with column inline editing, strike-through delete with instant Undo capability, column UP/DOWN reordering, new column generation, and table maintenance action bar.
+
 ## [v1.5.1] - 2026-09-27
 
 ### Fixed

@@ -1,4 +1,5 @@
 #!/bin/bash
+set -e
 # NexusControl Update Script
 
 export DEBIAN_FRONTEND=noninteractive
@@ -38,7 +39,7 @@ if [[ ! "$DO_BACKUP" =~ ^[Nn]$ ]]; then
         --exclude='./.git' \
         --exclude='./.uploads' \
         --exclude='./.trash' \
-        -czf "$BACKUP_FILE" -C /opt NexusControl 2>/dev/null
+        -czf "$BACKUP_FILE" -C /opt NexusControl 2>/dev/null || true
         
     echo "✅ Backup secured at: $BACKUP_FILE"
 else
@@ -48,16 +49,21 @@ fi
 cd /opt/NexusControl || exit 1
 
 echo "📦 Pulling latest codebase from GitHub..."
-git stash --quiet # Safely tuck away any accidental local edits to tracked files
+git stash --quiet 2>/dev/null || true # Safely tuck away any accidental local edits to tracked files
 git pull origin main --force
 
 echo "⚙️  Updating Backend Dependencies..."
-cd /opt/NexusControl/backend
-npm install --omit=dev
+if ! (cd /opt/NexusControl/backend && npm install --omit=dev); then
+    echo "❌ ERROR: Backend dependency installation failed! Aborting update."
+    exit 1
+fi
 
 echo "🎨 Rebuilding Frontend UI..."
-cd /opt/NexusControl/frontend
-npm install && npm run build
+if ! (cd /opt/NexusControl/frontend && npm install && npm run build); then
+    echo "❌ ERROR: Frontend build failed! Aborting update to prevent a broken state."
+    echo "Please check the server memory or run the build manually to diagnose."
+    exit 1
+fi
 
 cd /opt/NexusControl
 echo "🔧 Running Smart Infrastructure Migrations..."
@@ -65,7 +71,7 @@ echo "🔧 Running Smart Infrastructure Migrations..."
 # 1. Ensure iptables is installed (Added in v1.0.1 for AlmaLinux WireGuard support)
 if ! command -v iptables &> /dev/null; then
     echo "📦 Installing missing dependency: iptables..."
-    dnf install -y iptables 2>/dev/null || apt-get install -y iptables 2>/dev/null
+    dnf install -y iptables 2>/dev/null || apt-get install -y iptables 2>/dev/null || true
 fi
 
 # Safely inject PUBLIC_IP if the user updated from an older version
@@ -79,9 +85,9 @@ ensure_env_var "PUBLIC_IP" "$SERVER_PUBLIC_IP"
 if [ -f "/etc/wireguard/wg0.conf" ] && grep -q "eth0" "/etc/wireguard/wg0.conf"; then
     DEFAULT_IFACE=$(ip route ls default | awk '{print $5}' | head -n 1)
     echo "🔄 Migrating WireGuard config to use dynamic interface: $DEFAULT_IFACE..."
-    wg-quick down wg0 2>/dev/null
+    wg-quick down wg0 2>/dev/null || true
     sed -i "s/eth0/$DEFAULT_IFACE/g" /etc/wireguard/wg0.conf
-    wg-quick up wg0 2>/dev/null
+    wg-quick up wg0 2>/dev/null || true
 fi
 
 echo "🚀 Restarting NexusControl Daemon..."

@@ -28,3 +28,4 @@ Whenever you successfully implement a new feature (`feat`), resolve a bug (`fix`
    `## [vX.Y.Z] - YYYY-MM-DD`
    `- **Added/Fixed/Changed:** Brief description of your work.`
 4. **Commit:** Ensure these version bumps and changelog updates are included in the final git commit.
+5. **Dependency Synchronization:** If you install a new NPM package (backend or frontend), you MUST run `npm install` locally to generate the updated `package-lock.json` and ensure it is included in your git commit. Never push a `package.json` without its matching lockfile.

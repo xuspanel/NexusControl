@@ -21,6 +21,7 @@ import UsersView from './components/users/UsersView';
 import WireGuardView from './components/network/WireGuardView';
 import AlertsView from './components/settings/AlertsView';
 import UpdatesView from './components/settings/UpdatesView';
+import SystemWizard from './components/wizard/SystemWizard';
 import TwoFactorBanner from './components/TwoFactorBanner';
 import { AuthProvider } from './context/AuthContext';
 
@@ -292,6 +293,10 @@ export default function App() {
         ) : activeTab === 'updates' || activeTab === 'settings' ? (
           <main className="max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-4">
             <UpdatesView token={token} onShowToast={showToast} />
+          </main>
+        ) : activeTab === 'wizard' || activeTab === 'optimizer' ? (
+          <main className="max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-4">
+            <SystemWizard token={token} onShowToast={showToast} />
           </main>
         ) : (
           <main className="max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-4">

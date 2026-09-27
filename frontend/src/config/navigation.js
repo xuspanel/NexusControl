@@ -9,7 +9,8 @@ import {
   Users,
   Shield,
   Bell,
-  Sparkles
+  Sparkles,
+  Wand2
 } from 'lucide-react';
 
 /**
@@ -126,6 +127,16 @@ export const NAV_ITEMS = [
     shortcut: 'u',
     primaryMobile: false,
     roles: ['superadmin', 'operator', 'viewer']
+  },
+  {
+    id: 'wizard',
+    label: 'Optimization Wizard',
+    description: 'Heuristic tool audit, dormant daemon detector & deep purge cleaner',
+    icon: 'Wand2',
+    iconComponent: Wand2,
+    shortcut: 'w',
+    primaryMobile: false,
+    roles: ['superadmin']
   }
 ];
 
@@ -135,8 +146,8 @@ export const NAV_SHORTCUTS = NAV_ITEMS.reduce((acc, item) => {
 }, {});
 
 export function getNavItem(id) {
-  // Support aliases: 'telemetry' -> 'overview', 'domains' -> 'vhosts', 'vpn' -> 'network', 'wireguard' -> 'network', 'settings' -> 'updates'
-  const normalized = id === 'telemetry' ? 'overview' : id === 'domains' ? 'vhosts' : (id === 'vpn' || id === 'wireguard') ? 'network' : id === 'settings' ? 'updates' : id;
+  // Support aliases: 'telemetry' -> 'overview', 'domains' -> 'vhosts', 'vpn' -> 'network', 'wireguard' -> 'network', 'settings' -> 'updates', 'optimizer' -> 'wizard'
+  const normalized = id === 'telemetry' ? 'overview' : id === 'domains' ? 'vhosts' : (id === 'vpn' || id === 'wireguard') ? 'network' : id === 'settings' ? 'updates' : id === 'optimizer' ? 'wizard' : id;
   return NAV_ITEMS.find(item => item.id === normalized) || NAV_ITEMS[0];
 }
 

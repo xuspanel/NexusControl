@@ -5,6 +5,13 @@ All notable changes to NexusControl will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.3.0] - 2026-09-27
+
+### Added
+- **System Optimization Wizard:** Smart heuristic analysis engine scanning for major tools (Apache, Nginx, PHP, MySQL, Redis, Docker, Postfix) and orphaned packages (`apt-get autoremove` / `dnf repoquery`).
+- **Interactive Cleaner UI:** Radar scan animation, categorized Smart Cards (Keep, Review, Purge), and selective batch removal controls.
+- **Real-Time Deep Purge Streaming:** Server-Sent Events (SSE) live purge runner with terminal streaming output, audit logging, and automated daemon refresh.
+
 ## [v1.2.1] - 2026-09-27
 
 ### Fixed

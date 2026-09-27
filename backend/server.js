@@ -33,6 +33,7 @@ const userRouter = require('./userRouter');
 const wireguardRouter = require('./wireguardRouter');
 const alertRouter = require('./alertRouter');
 const osUpdates = require('./osUpdates');
+const wizardEngine = require('./wizardEngine');
 
 // Ensure system storage directories exist on boot
 trash.initTrash().then(() => console.log('[BOOT] Trash directory initialized at /opt/NexusControl/.trash')).catch(err => console.error('[BOOT ERROR] Trash init:', err));
@@ -580,6 +581,62 @@ app.get('/api/system/os-packages/upgrade', auth.authMiddleware, auth.requireRole
     }
   }
 });
+
+// System Optimization Wizard: Smart Heuristic Scan
+app.get('/api/system/wizard/scan', auth.authMiddleware, async (req, res) => {
+  try {
+    const [tools, orphaned] = await Promise.all([
+      wizardEngine.scanMajorTools(),
+      wizardEngine.scanOrphanedPackages()
+    ]);
+
+    const recommendedPurges = tools.filter(t => t.recommendation === 'PURGE').length;
+    const recommendedReviews = tools.filter(t => t.recommendation === 'REVIEW').length;
+
+    res.json({
+      success: true,
+      tools,
+      orphaned,
+      summary: {
+        totalInstalledTools: tools.length,
+        recommendedPurges,
+        recommendedReviews,
+        orphanedCount: orphaned.count,
+        estimatedSpaceFreed: orphaned.estimatedSpaceFreed
+      }
+    });
+  } catch (error) {
+    console.error('[Wizard] Scan error:', error);
+    res.status(500).json({ error: error.message || 'System scan failed.' });
+  }
+});
+
+// System Optimization Wizard: Deep Purge Execution (Supports SSE via GET or POST)
+const handleWizardPurge = (req, res) => {
+  try {
+    const tools = req.body?.tools || req.query?.tools || [];
+    const packages = req.body?.packages || req.query?.packages || [];
+    const autoremove = (req.body?.autoremove === true || req.body?.autoremove === 'true' || req.query?.autoremove === 'true');
+
+    auditLogger.logEvent({
+      action: 'SYSTEM_WIZARD_DEEP_PURGE',
+      performedBy: req.user?.username || 'admin',
+      target: Array.isArray(tools) ? tools.join(', ') : String(tools),
+      details: { tools, packages, autoremove, ip: req.ip },
+      severity: 'WARNING'
+    });
+
+    wizardEngine.streamDeepPurge({ tools, packages, autoremove }, req, res);
+  } catch (error) {
+    console.error('[Wizard] Purge error:', error);
+    if (!res.headersSent) {
+      res.status(500).json({ error: error.message || 'Purge failed.' });
+    }
+  }
+};
+
+app.get('/api/system/wizard/purge', auth.authMiddleware, auth.requireRole(['superadmin'], 'overview'), handleWizardPurge);
+app.post('/api/system/wizard/purge', auth.authMiddleware, auth.requireRole(['superadmin'], 'overview'), handleWizardPurge);
 
 // Protected User Management Endpoints (Superadmin only)
 app.use('/api/users', auth.authMiddleware, auth.requireRole(['superadmin'], 'users'), userRouter);

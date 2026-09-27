@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Sparkles,
   RefreshCw,
@@ -13,7 +13,9 @@ import {
   Clock,
   ExternalLink,
   BookOpen,
-  Info
+  Info,
+  Loader2,
+  AlertCircle
 } from 'lucide-react';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
@@ -24,6 +26,16 @@ export default function UpdatesView({ token, onShowToast }) {
   const [updateData, setUpdateData] = useState(null);
   const [error, setError] = useState(null);
   const [copied, setCopied] = useState(false);
+
+  // In-app update execution states
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [updateStage, setUpdateStage] = useState('initiating');
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [triggeringApi, setTriggeringApi] = useState(false);
+
+  const pollIntervalRef = useRef(null);
+  const timerIntervalRef = useRef(null);
 
   const authHeaders = useMemo(() => ({
     'Authorization': `Bearer ${token}`,
@@ -70,12 +82,93 @@ export default function UpdatesView({ token, onShowToast }) {
     fetchUpdates(false);
   }, [fetchUpdates]);
 
+  // Clean up timers on unmount
+  useEffect(() => {
+    return () => {
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+      if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+    };
+  }, []);
+
   const copyUpdateCommand = () => {
     const cmd = 'sudo /opt/NexusControl/update.sh';
     navigator.clipboard.writeText(cmd);
     setCopied(true);
     if (onShowToast) onShowToast('Update command copied to clipboard!', 'info');
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  // Start the detached update process and begin polling
+  const handleStartUpdate = async () => {
+    setShowConfirmModal(false);
+    setTriggeringApi(true);
+
+    try {
+      const res = await fetch('/api/system/update', {
+        method: 'POST',
+        headers: authHeaders
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to initiate update process.');
+      }
+
+      // Enter modal overlay state
+      setIsUpdating(true);
+      setElapsedSeconds(0);
+      setUpdateStage('initiating');
+
+      // Start elapsed seconds counter
+      timerIntervalRef.current = setInterval(() => {
+        setElapsedSeconds(prev => {
+          const next = prev + 1;
+          if (next >= 45) {
+            setUpdateStage('reconnecting');
+          } else if (next >= 22) {
+            setUpdateStage('compiling');
+          } else if (next >= 8) {
+            setUpdateStage('pulling');
+          } else {
+            setUpdateStage('backup');
+          }
+          return next;
+        });
+      }, 1000);
+
+      // Give Node 5 seconds to gracefully detach and allow systemctl restart to begin
+      setTimeout(() => {
+        // Start polling loop every 3 seconds
+        pollIntervalRef.current = setInterval(async () => {
+          try {
+            const checkRes = await fetch('/api/system/updates', {
+              headers: authHeaders
+            });
+
+            // Once 200 OK returns, the new daemon is officially online
+            if (checkRes.ok) {
+              clearInterval(pollIntervalRef.current);
+              clearInterval(timerIntervalRef.current);
+              setUpdateStage('reloaded');
+              if (onShowToast) onShowToast('Update completed! Reloading dashboard...', 'success');
+              setTimeout(() => {
+                window.location.reload();
+              }, 1200);
+            }
+          } catch (e) {
+            // Silently catch Network Error / 502 Bad Gateway during daemon restart
+          }
+        }, 3000);
+      }, 5000);
+
+    } catch (err) {
+      console.error('[UpdatesView] Update trigger error:', err);
+      setIsUpdating(false);
+      if (onShowToast) onShowToast(err.message || 'Failed to start update.', 'error');
+    } finally {
+      setTriggeringApi(false);
+    }
   };
 
   // Sanitize and parse markdown changelog safely
@@ -110,11 +203,23 @@ export default function UpdatesView({ token, onShowToast }) {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2.5">
+          {/* Prominent Bright Update Now Button if update is available */}
+          {updateData?.updateAvailable && (
+            <button
+              onClick={() => setShowConfirmModal(true)}
+              disabled={isUpdating || triggeringApi}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold bg-emerald-500 hover:bg-emerald-400 text-black shadow-lg shadow-emerald-500/20 hover:shadow-emerald-500/35 transition-all transform active:scale-95 cursor-pointer"
+            >
+              <Sparkles className="w-4 h-4 fill-black text-black" />
+              <span>Update Now</span>
+            </button>
+          )}
+
           <button
             onClick={() => fetchUpdates(true)}
-            disabled={loading || refreshing}
-            className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-medium bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-200 border border-zinc-200 dark:border-zinc-700/60 transition-colors disabled:opacity-50"
+            disabled={loading || refreshing || isUpdating}
+            className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-medium bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-200 border border-zinc-200 dark:border-zinc-700/60 transition-colors disabled:opacity-50 cursor-pointer"
             title="Check GitHub for latest release"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin text-emerald-500' : ''}`} />
@@ -194,7 +299,7 @@ export default function UpdatesView({ token, onShowToast }) {
               ? 'bg-emerald-500/5 dark:bg-emerald-950/20 border-emerald-500/30 text-emerald-700 dark:text-emerald-300'
               : 'bg-amber-500/5 dark:bg-amber-950/20 border-amber-500/30 text-amber-700 dark:text-amber-300'
           }`}>
-            <div>
+            <div className="flex-1 pr-2">
               <p className="text-[11px] font-mono uppercase tracking-wider opacity-80">Deployment Status</p>
               <div className="flex items-center gap-1.5 mt-1 font-semibold text-sm">
                 {isUpToDate ? (
@@ -215,29 +320,53 @@ export default function UpdatesView({ token, onShowToast }) {
                   : `Upgrade available: v${updateData.currentVersion} → v${updateData.latestVersion}`}
               </p>
             </div>
-            <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-              isUpToDate ? 'bg-emerald-500/10 text-emerald-500' : 'bg-amber-500/10 text-amber-500'
-            }`}>
-              {isUpToDate ? <ShieldCheck className="w-5 h-5" /> : <ArrowUpCircle className="w-5 h-5" />}
+            <div className="flex flex-col items-end gap-2">
+              <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+                isUpToDate ? 'bg-emerald-500/10 text-emerald-500' : 'bg-amber-500/10 text-amber-500'
+              }`}>
+                {isUpToDate ? <ShieldCheck className="w-5 h-5" /> : <ArrowUpCircle className="w-5 h-5" />}
+              </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* 5. Safe Update Instructions Block */}
+      {/* 5. Safe Update Instructions & One-Click Trigger Card */}
       <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 text-zinc-100 shadow-md">
-        <div className="flex items-start justify-between gap-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-2 text-emerald-400 font-semibold text-sm">
             <Terminal className="w-4 h-4" />
-            <span>How to Apply Updates Safely</span>
+            <span>Automated Host Update Engine</span>
           </div>
-          <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-zinc-800 text-zinc-400 border border-zinc-700/60">
-            CLI Operations
-          </span>
+          <div className="flex items-center gap-2">
+            {updateData?.updateAvailable ? (
+              <button
+                onClick={() => setShowConfirmModal(true)}
+                disabled={isUpdating || triggeringApi}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-500 hover:bg-emerald-400 text-black shadow-md shadow-emerald-500/20 transition-all cursor-pointer"
+              >
+                <Sparkles className="w-3.5 h-3.5 fill-black" />
+                <span>One-Click Update Now</span>
+              </button>
+            ) : (
+              <button
+                onClick={() => setShowConfirmModal(true)}
+                disabled={isUpdating || triggeringApi}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700 transition-colors cursor-pointer"
+                title="Force-run update script to reconcile environment and rebuild"
+              >
+                <RefreshCw className="w-3.5 h-3.5 text-zinc-400" />
+                <span>Re-run Update Script</span>
+              </button>
+            )}
+            <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-zinc-800 text-zinc-400 border border-zinc-700/60">
+              CLI / Detached
+            </span>
+          </div>
         </div>
 
         <p className="text-xs text-zinc-400 mt-2 leading-relaxed">
-          NexusControl features automated, state-reconciling migrations and pre-update tar snapshot guards. Run the host update script directly via SSH:
+          Updates execute detached from the Node.js event loop with automated pre-update backups and zero downtime interruption. You can trigger it via the button above, or manually via SSH:
         </p>
 
         {/* Command Box */}
@@ -248,7 +377,7 @@ export default function UpdatesView({ token, onShowToast }) {
           </span>
           <button
             onClick={copyUpdateCommand}
-            className="ml-3 px-2.5 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700/80 transition-colors flex items-center gap-1.5 text-xs font-sans"
+            className="ml-3 px-2.5 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700/80 transition-colors flex items-center gap-1.5 text-xs font-sans cursor-pointer"
             title="Copy command"
           >
             {copied ? (
@@ -269,7 +398,7 @@ export default function UpdatesView({ token, onShowToast }) {
         <div className="mt-3 flex items-start gap-2 text-[11px] text-amber-400/90 bg-amber-500/10 border border-amber-500/20 rounded-lg p-2.5">
           <Info className="w-4 h-4 shrink-0 mt-0.5 text-amber-400" />
           <span>
-            <strong>Architectural Safety Guard:</strong> To apply this update, run <code className="bg-black/40 px-1 py-0.5 rounded text-amber-300 font-mono">sudo /opt/NexusControl/update.sh</code> via your server terminal. Do not execute the script directly from Node.js, as replacing the active process mid-request can cause 502 Bad Gateway errors.
+            <strong>Architectural Safety Guard:</strong> When triggered from the dashboard, the update script is spawned as a detached background process with <code className="bg-black/40 px-1 py-0.5 rounded text-amber-300 font-mono">unref()</code> so that the host daemon restart does not interrupt code compilation or cause 502 Bad Gateway failures.
           </span>
         </div>
       </div>
@@ -283,15 +412,22 @@ export default function UpdatesView({ token, onShowToast }) {
               Release Notes & Upstream Changelog
             </h2>
           </div>
-          <a
-            href="https://github.com/xuspanel/NexusControl/blob/main/CHANGELOG.md"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-xs text-zinc-500 hover:text-emerald-500 dark:text-zinc-400 dark:hover:text-emerald-400 inline-flex items-center gap-1 transition-colors"
-          >
-            <span>View on GitHub</span>
-            <ExternalLink className="w-3 h-3" />
-          </a>
+          <div className="flex items-center gap-3">
+            {updateData?.updateAvailable && (
+              <span className="text-xs px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 font-mono">
+                v{updateData.latestVersion} Ready
+              </span>
+            )}
+            <a
+              href="https://github.com/xuspanel/NexusControl/blob/main/CHANGELOG.md"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs text-zinc-500 hover:text-emerald-500 dark:text-zinc-400 dark:hover:text-emerald-400 inline-flex items-center gap-1 transition-colors"
+            >
+              <span>View on GitHub</span>
+              <ExternalLink className="w-3 h-3" />
+            </a>
+          </div>
         </div>
 
         {/* Scrollable Changelog Content Container */}
@@ -308,6 +444,120 @@ export default function UpdatesView({ token, onShowToast }) {
           )}
         </div>
       </div>
+
+      {/* Confirmation Modal */}
+      {showConfirmModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-[#18181b] border border-zinc-200 dark:border-zinc-800 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-500 shrink-0">
+                <AlertCircle className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-zinc-900 dark:text-zinc-100">
+                  Confirm System Update
+                </h3>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                  Target version: v{updateData?.latestVersion || updateData?.currentVersion}
+                </p>
+              </div>
+            </div>
+
+            <div className="text-xs text-zinc-600 dark:text-zinc-300 space-y-2 leading-relaxed bg-zinc-50 dark:bg-zinc-900/60 p-3.5 rounded-xl border border-zinc-200/60 dark:border-zinc-800/60">
+              <p>
+                This will execute <code className="text-emerald-500 font-mono">/opt/NexusControl/update.sh</code> in the background:
+              </p>
+              <ul className="list-disc pl-4 space-y-1 text-zinc-500 dark:text-zinc-400">
+                <li>Creates a pre-update state backup tar snapshot</li>
+                <li>Pulls the latest code from GitHub</li>
+                <li>Updates backend dependencies and rebuilds the frontend</li>
+                <li>Restarts the NexusControl daemon and reloads the dashboard</li>
+              </ul>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                onClick={() => setShowConfirmModal(false)}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-zinc-700 dark:text-zinc-300 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleStartUpdate}
+                disabled={triggeringApi}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-black bg-emerald-500 hover:bg-emerald-400 shadow-md shadow-emerald-500/25 transition-all flex items-center gap-1.5 cursor-pointer"
+              >
+                {triggeringApi ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5 fill-black" />}
+                <span>Proceed with Update</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Full-Screen Un-closeable Updating Modal Overlay */}
+      {isUpdating && (
+        <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center select-none animate-in fade-in duration-300">
+          <div className="max-w-md w-full bg-zinc-900/90 border border-zinc-800 rounded-2xl p-8 shadow-2xl flex flex-col items-center space-y-6">
+            {/* Animated Pulse Ring */}
+            <div className="relative">
+              <div className="w-20 h-20 rounded-full bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+                <RefreshCw className="w-9 h-9 animate-spin text-emerald-400" />
+              </div>
+              <div className="absolute inset-0 rounded-full border-2 border-emerald-500/20 animate-ping pointer-events-none" />
+            </div>
+
+            {/* Title & Warning */}
+            <div className="space-y-2">
+              <h2 className="text-xl font-bold tracking-tight text-white flex items-center justify-center gap-2">
+                Updating NexusControl...
+              </h2>
+              <p className="text-xs text-zinc-400 leading-relaxed max-w-sm">
+                Please wait while the system safely backs up, rebuilds, and restarts. <strong>Do not close or refresh this tab.</strong>
+              </p>
+            </div>
+
+            {/* Current Stage Indicator */}
+            <div className="w-full bg-black/50 border border-zinc-800 rounded-xl p-3.5 text-left space-y-2">
+              <div className="flex items-center justify-between text-[11px] font-mono">
+                <span className="text-zinc-400">Current Phase:</span>
+                <span className="text-emerald-400 font-semibold flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  {updateStage === 'reloaded' && 'Update Complete!'}
+                  {updateStage === 'reconnecting' && 'Reconnecting to Daemon...'}
+                  {updateStage === 'compiling' && 'Rebuilding Frontend & Migrations...'}
+                  {updateStage === 'pulling' && 'Pulling Code & Dependencies...'}
+                  {(updateStage === 'backup' || updateStage === 'initiating') && 'Securing State Backup...'}
+                </span>
+              </div>
+
+              {/* Progress bar */}
+              <div className="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-all duration-1000 ease-out"
+                  style={{
+                    width: updateStage === 'reloaded' ? '100%'
+                         : updateStage === 'reconnecting' ? '85%'
+                         : updateStage === 'compiling' ? '65%'
+                         : updateStage === 'pulling' ? '40%'
+                         : '20%'
+                  }}
+                />
+              </div>
+
+              <div className="flex items-center justify-between text-[10px] font-mono text-zinc-500 pt-0.5">
+                <span>Auto-Reconnection Active</span>
+                <span>Elapsed: {elapsedSeconds}s</span>
+              </div>
+            </div>
+
+            <div className="text-[11px] text-zinc-500 font-mono flex items-center gap-1.5">
+              <Info className="w-3.5 h-3.5 text-zinc-400" />
+              <span>Polling every 3s • Seamless auto-reload</span>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Custom Styles for Rendered Changelog HTML */}
       <style>{`

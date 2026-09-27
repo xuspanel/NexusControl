@@ -1,6 +1,9 @@
 #!/bin/bash
 # NexusControl Update Script
 
+export DEBIAN_FRONTEND=noninteractive
+export CI=true
+
 # Helper: Safely inject new environment variables without overwriting existing ones
 ensure_env_var() {
     local key=$1
@@ -19,8 +22,8 @@ echo "🔄 Initiating NexusControl Update..."
 
 # [SAFETY GUARD] Pre-Update Backup
 DO_BACKUP="y"
-if [ -c /dev/tty ]; then
-    read -p "📦 Do you want to create a safe backup of your data before updating? [Y/n]: " DO_BACKUP < /dev/tty
+if [ -t 0 ] && [ -c /dev/tty ]; then
+    read -p "📦 Do you want to create a safe backup of your data before updating? [Y/n]: " DO_BACKUP < /dev/tty || DO_BACKUP="y"
 fi
 
 if [[ ! "$DO_BACKUP" =~ ^[Nn]$ ]]; then

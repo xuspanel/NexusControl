@@ -7,6 +7,7 @@ const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const path = require('node:path');
 const fs = require('node:fs');
+const { spawn } = require('node:child_process');
 
 const collector = require('./collector');
 const osAdapter = require('./osAdapter');
@@ -514,6 +515,33 @@ app.get('/api/system/updates', auth.authMiddleware, async (req, res) => {
   } catch (error) {
     console.error('[Updates] Failed to check for system updates:', error);
     res.status(500).json({ error: 'Failed to fetch update status' });
+  }
+});
+
+app.post('/api/system/update', auth.authMiddleware, auth.requireRole(['superadmin'], 'overview'), (req, res) => {
+  try {
+    auditLogger.logEvent({
+      action: 'SYSTEM_UPDATE_TRIGGERED',
+      performedBy: req.user?.username || 'admin',
+      target: 'NexusControl Update Engine',
+      details: { ip: req.ip },
+      severity: 'WARNING'
+    });
+
+    // 1. Spawn the update script as a detached background process
+    const updateProcess = spawn('bash', ['/opt/NexusControl/update.sh'], {
+      detached: true,
+      stdio: 'ignore' // Crucial to prevent hanging on output streams
+    });
+
+    // 2. Unref allows Node to exit independently of the child process
+    updateProcess.unref();
+
+    // 3. Immediately respond to the UI so it doesn't get a 502 Bad Gateway
+    res.status(200).json({ message: 'Update initiated successfully. System will reboot momentarily.' });
+  } catch (error) {
+    console.error('[Updates] Failed to initiate update process:', error);
+    res.status(500).json({ error: 'Failed to initiate update process.' });
   }
 });
 

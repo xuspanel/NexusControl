@@ -18,6 +18,7 @@ import ThemeToggle from './ThemeToggle';
 import OsBadge from './OsBadge';
 import { useAuth } from '../context/AuthContext';
 import TwoFactorModal from './TwoFactorModal';
+import pkg from '../../package.json';
 
 export default function HeaderProfile({ profile, telemetry, connected, onLogout, onRefresh, onSelectTab }) {
   const { twoFactorEnabled, refreshUser, token } = useAuth();
@@ -61,7 +62,7 @@ export default function HeaderProfile({ profile, telemetry, connected, onLogout,
                   title="View System Updates & Changelog"
                 >
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                  <span>v1.0.1</span>
+                  <span>v{pkg.version || '1.1.0'}</span>
                 </button>
                 {/* Live stream status */}
                 <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-mono border ${

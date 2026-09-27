@@ -16,3 +16,15 @@ Every time you implement a new feature, add a new utility script, integrate a ne
 - Ensure any new endpoint is protected by `authMiddleware` and the appropriate FGAC role.
 - Log all sensitive or destructive actions to the SHA-256 audit ledger.
 - Guard against directory traversal attacks and enforce path sandboxing across all filesystem operations.
+
+## Version Control & Release Protocol
+Whenever you successfully implement a new feature (`feat`), resolve a bug (`fix`), or make a breaking architectural change, you MUST execute the following release protocol before finishing the task:
+1. **Determine SemVer Bump:** 
+   - Patch (v1.0.x) for bug fixes.
+   - Minor (v1.x.0) for new backward-compatible features.
+   - Major (vX.0.0) for breaking changes.
+2. **Synchronize Package Versions:** Update the `"version"` key simultaneously in BOTH `/backend/package.json` and `/frontend/package.json` so they always match perfectly.
+3. **Update Changelog:** Prepend a new version block to `CHANGELOG.md` using the standard format:
+   `## [vX.Y.Z] - YYYY-MM-DD`
+   `- **Added/Fixed/Changed:** Brief description of your work.`
+4. **Commit:** Ensure these version bumps and changelog updates are included in the final git commit.

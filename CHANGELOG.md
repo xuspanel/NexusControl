@@ -5,6 +5,15 @@ All notable changes to NexusControl will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.1.0] - 2026-09-27
+
+### Added
+- **Detached In-App One-Click Updater:** Native `POST /api/system/update` background process execution with automated frontend reconnection polling and reload.
+- **Automated WireGuard Migrations:** State-aware `iptables` dependency check and dynamic default network interface migration in `update.sh`.
+- **In-App Version Control UI:** Integrated dashboard update center comparing local tags against upstream GitHub releases with sanitized Markdown changelog parsing.
+- **Enhanced Interactive ALLOWED_IPS Security Flow:** Streamlined installation prompt allowing explicit confirmation or opt-out (`0.0.0.0/0`) of client IP restriction.
+- **Pre-Update State Backups:** Automatic non-destructive `.tar.gz` archive snapshots created in `/opt/NexusControl_backups/` before applying updates.
+
 ## [1.0.1] - 2026-09-25
 
 ### Added

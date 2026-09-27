@@ -23,6 +23,7 @@ import {
   FileCode,
   Key
 } from 'lucide-react';
+import DatabaseWorkspace from './DatabaseWorkspace';
 
 export default function PostgresManager({ token, onShowToast, onNavigateTab }) {
   const [loading, setLoading] = useState(true);
@@ -31,6 +32,7 @@ export default function PostgresManager({ token, onShowToast, onNavigateTab }) {
   const [databases, setDatabases] = useState([]);
   const [error, setError] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedDb, setSelectedDb] = useState(null);
 
   // Modals state
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -299,7 +301,22 @@ export default function PostgresManager({ token, onShowToast, onNavigateTab }) {
     );
   }
 
-  // 4. Main Active Dashboard
+  // 4. Database Workspace View (PhpMyAdmin / pgAdmin alternative)
+  if (selectedDb) {
+    return (
+      <DatabaseWorkspace
+        token={token}
+        dbName={selectedDb}
+        onBack={() => {
+          setSelectedDb(null);
+          fetchData(false);
+        }}
+        onShowToast={onShowToast}
+      />
+    );
+  }
+
+  // 5. Main Active Dashboard
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
       {/* 1. Header Banner & Quick Actions */}
@@ -472,7 +489,13 @@ export default function PostgresManager({ token, onShowToast, onNavigateTab }) {
                         </div>
                         <div>
                           <div className="flex items-center gap-2">
-                            <span>{db.name}</span>
+                            <button
+                              onClick={() => setSelectedDb(db.name)}
+                              className="font-bold text-zinc-900 dark:text-zinc-100 hover:text-cyan-600 dark:hover:text-cyan-400 transition-colors cursor-pointer text-left inline-flex items-center gap-1 group/btn"
+                            >
+                              <span>{db.name}</span>
+                              <ExternalLink className="w-3 h-3 opacity-0 group-hover/btn:opacity-100 transition-opacity" />
+                            </button>
                             {isSystem && (
                               <span className="px-1.5 py-0.5 rounded text-[10px] bg-zinc-100 dark:bg-zinc-800 text-zinc-500 border border-zinc-200 dark:border-zinc-700">
                                 System Catalog
@@ -504,21 +527,29 @@ export default function PostgresManager({ token, onShowToast, onNavigateTab }) {
 
                       {/* Actions */}
                       <td className="py-3.5 px-4 text-right">
-                        {isSystem ? (
-                          <span className="text-[11px] text-zinc-400 italic font-sans pr-2">Protected</span>
-                        ) : (
+                        <div className="flex items-center justify-end gap-1">
                           <button
-                            onClick={() => {
-                              setDbToDelete(db);
-                              setConfirmDeleteInput('');
-                              setDeleteError('');
-                            }}
-                            className="p-1.5 rounded-lg text-zinc-400 hover:text-rose-500 hover:bg-rose-500/10 transition-colors cursor-pointer"
-                            title={`Drop database "${db.name}"`}
+                            onClick={() => setSelectedDb(db.name)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold text-cyan-700 dark:text-cyan-300 bg-cyan-50 dark:bg-cyan-950/40 hover:bg-cyan-100 dark:hover:bg-cyan-900/60 border border-cyan-200/60 dark:border-cyan-800/60 transition-colors cursor-pointer"
+                            title={`Open "${db.name}" workspace`}
                           >
-                            <Trash2 className="w-4 h-4" />
+                            <span>Open</span>
+                            <ExternalLink className="w-3 h-3" />
                           </button>
-                        )}
+                          {!isSystem && (
+                            <button
+                              onClick={() => {
+                                setDbToDelete(db);
+                                setConfirmDeleteInput('');
+                                setDeleteError('');
+                              }}
+                              className="p-1.5 rounded-lg text-zinc-400 hover:text-rose-500 hover:bg-rose-500/10 transition-colors cursor-pointer"
+                              title={`Drop database "${db.name}"`}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );

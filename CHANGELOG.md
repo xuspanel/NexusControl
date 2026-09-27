@@ -5,6 +5,17 @@ All notable changes to NexusControl will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.5.0] - 2026-09-27
+
+### Added
+- **Added:** Phase 2 of PostgreSQL Engine with deep introspection, Data Grid editing, Global Search, and SQL Terminal.
+- **Dynamic Per-Database Connection Pooling:** Implemented `getDbPool(dbName)` in `backend/postgresEngine.js` for instant, cached connection switching across any database catalog without server restarts.
+- **Deep Schema & Object Introspection:** Added comprehensive REST endpoints (`/config`, `/privileges`, `/triggers`, `/relations`, `/tables`, `/tables/create`, `/views/create`) querying PostgreSQL system catalogs (`pg_class`, `pg_trigger`, `pg_stat_activity`, `information_schema`).
+- **Dynamic Visual Data Grid with Inline CRUD:** Interactive tabular editor (`TableDataGrid.jsx`) with Limit/Offset pagination, primary key-safe inline cell editing, multi-row bulk deletion, schema configuration toggle, and client-side CSV/JSON export.
+- **Dedicated Monaco SQL Terminal:** Embedded full-screen Monaco SQL console with keyboard execution (`Ctrl+Enter`), query execution timing, syntax error formatting, and result table / JSON views.
+- **Global Cross-Table Database Search:** Deep text scanning across all `varchar` and `text` columns in the database with grouped match cards and instant table navigation.
+- **Native Streaming Database Dump (`pg_dump`):** Zero-memory-footprint backup downloads streaming stdout from `pg_dump` directly to client HTTP responses with full, schema-only, and data-only modes.
+
 ## [v1.4.0] - 2026-09-27
 
 ### Added

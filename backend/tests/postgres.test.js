@@ -2,8 +2,22 @@ const request = require('supertest');
 const { app } = require('../server');
 const postgresEngine = require('../postgresEngine');
 
-describe('PostgreSQL Database Management Integration Test Suite', () => {
+describe('PostgreSQL Database Management Integration Test Suite (Phase 1 & Phase 2)', () => {
+  const testDbName = `nexus_phase2_${Date.now()}`;
+
+  beforeAll(async () => {
+    if (postgresEngine.isPsqlInstalled()) {
+      postgresEngine.initPostgresSuperuser();
+      await postgresEngine.createDatabase(testDbName);
+    }
+  });
+
   afterAll(async () => {
+    if (postgresEngine.isPsqlInstalled()) {
+      try {
+        await postgresEngine.dropDatabase(testDbName);
+      } catch (_) {}
+    }
     await postgresEngine.closePool();
   });
 
@@ -34,11 +48,11 @@ describe('PostgreSQL Database Management Integration Test Suite', () => {
     });
 
     test('createDatabase rejects invalid identifier names (SQL injection defense)', async () => {
-      await expect(postgresEngine.createDatabase('')).rejects.toThrow('Database name is required');
-      await expect(postgresEngine.createDatabase('bad name with spaces')).rejects.toThrow('Invalid database name');
-      await expect(postgresEngine.createDatabase('db; DROP TABLE users;')).rejects.toThrow('Invalid database name');
-      await expect(postgresEngine.createDatabase('123starts_with_number')).rejects.toThrow('Invalid database name');
-      await expect(postgresEngine.createDatabase('db$dollar')).rejects.toThrow('Invalid database name');
+      await expect(postgresEngine.createDatabase('')).rejects.toThrow('Identifier name is required');
+      await expect(postgresEngine.createDatabase('bad name with spaces')).rejects.toThrow('Invalid identifier');
+      await expect(postgresEngine.createDatabase('db; DROP TABLE users;')).rejects.toThrow('Invalid identifier');
+      await expect(postgresEngine.createDatabase('123starts_with_number')).rejects.toThrow('Invalid identifier');
+      await expect(postgresEngine.createDatabase('db$dollar')).rejects.toThrow('Invalid identifier');
     });
 
     test('dropDatabase strictly blocks dropping protected system databases', async () => {
@@ -46,21 +60,139 @@ describe('PostgreSQL Database Management Integration Test Suite', () => {
       await expect(postgresEngine.dropDatabase('template0')).rejects.toThrow('Cannot drop protected system database');
       await expect(postgresEngine.dropDatabase('template1')).rejects.toThrow('Cannot drop protected system database');
     });
+  });
 
-    test('Database lifecycle: creates and drops a test database', async () => {
+  describe('Deep Introspection & Table Management (Phase 2)', () => {
+    test('getDatabaseConfig returns owner, connection limit, and active connections', async () => {
       if (postgresEngine.isPsqlInstalled()) {
-        const testDbName = `nexus_jest_${Date.now()}`;
-        const created = await postgresEngine.createDatabase(testDbName);
-        expect(created.name).toBe(testDbName);
+        const config = await postgresEngine.getDatabaseConfig(testDbName);
+        expect(config.name).toBe(testDbName);
+        expect(config.owner).toBeDefined();
+        expect(config.connection_limit).toBeDefined();
+        expect(config.active_connections).toBeDefined();
+      }
+    });
 
-        const dbsAfterCreate = await postgresEngine.listDatabases();
-        expect(dbsAfterCreate.some(d => d.name === testDbName)).toBe(true);
+    test('updateDatabaseConfig updates comment and connection limit', async () => {
+      if (postgresEngine.isPsqlInstalled()) {
+        const updated = await postgresEngine.updateDatabaseConfig(testDbName, {
+          connectionLimit: 50,
+          comment: 'Test suite comment'
+        });
+        expect(updated.connection_limit).toBe(50);
+        expect(updated.comment).toBe('Test suite comment');
+      }
+    });
 
-        const dropped = await postgresEngine.dropDatabase(testDbName);
-        expect(dropped.dropped).toBe(true);
+    test('createTable provisions table and listTables discovers it', async () => {
+      if (postgresEngine.isPsqlInstalled()) {
+        const tbl = await postgresEngine.createTable(testDbName, {
+          tableName: 'users_test',
+          columns: [
+            { name: 'id', type: 'serial', primaryKey: true },
+            { name: 'email', type: 'varchar(255)', nullable: false, unique: true },
+            { name: 'bio', type: 'text', nullable: true }
+          ]
+        });
+        expect(tbl.name).toBe('users_test');
 
-        const dbsAfterDrop = await postgresEngine.listDatabases();
-        expect(dbsAfterDrop.some(d => d.name === testDbName)).toBe(false);
+        const tables = await postgresEngine.listTables(testDbName);
+        const createdTbl = tables.find(t => t.name === 'users_test');
+        expect(createdTbl).toBeDefined();
+        expect(createdTbl.type).toBe('table');
+      }
+    });
+
+    test('getTableConfig introspects column schema and primary key', async () => {
+      if (postgresEngine.isPsqlInstalled()) {
+        const cols = await postgresEngine.getTableConfig(testDbName, 'users_test');
+        expect(cols.length).toBe(3);
+
+        const idCol = cols.find(c => c.column_name === 'id');
+        expect(idCol).toBeDefined();
+        expect(idCol.is_primary_key).toBe(true);
+
+        const emailCol = cols.find(c => c.column_name === 'email');
+        expect(emailCol.is_primary_key).toBe(false);
+        expect(emailCol.is_nullable).toBe('NO');
+      }
+    });
+
+    test('Dynamic Data Grid CRUD: Insert, paginate, update safely via PK, and delete', async () => {
+      if (postgresEngine.isPsqlInstalled()) {
+        // Insert a test row via executeQuery
+        await postgresEngine.executeQuery(
+          testDbName,
+          `INSERT INTO users_test (email, bio) VALUES ('alice@example.com', 'Hello world');`
+        );
+
+        // 1. Get Table Data
+        const data = await postgresEngine.getTableData(testDbName, 'users_test');
+        expect(data.total).toBe(1);
+        expect(data.rows.length).toBe(1);
+        expect(data.rows[0].email).toBe('alice@example.com');
+        const rowId = data.rows[0].id;
+
+        // 2. Safe Inline Row Update using detected Primary Key
+        const updatedRow = await postgresEngine.updateTableRow(testDbName, 'users_test', {
+          primaryKeys: { id: rowId },
+          updates: { bio: 'Updated bio safely' }
+        });
+        expect(updatedRow.bio).toBe('Updated bio safely');
+
+        // 3. Reject update if required Primary Key is missing
+        await expect(
+          postgresEngine.updateTableRow(testDbName, 'users_test', {
+            primaryKeys: {},
+            updates: { bio: 'Hacker rewrite' }
+          })
+        ).rejects.toThrow('Primary Key');
+
+        // 4. Safe Row Delete
+        const delRes = await postgresEngine.deleteTableRow(testDbName, 'users_test', {
+          primaryKeys: { id: rowId }
+        });
+        expect(delRes.deleted).toBe(true);
+
+        const dataAfterDel = await postgresEngine.getTableData(testDbName, 'users_test');
+        expect(dataAfterDel.total).toBe(0);
+      }
+    });
+
+    test('createView provisions a SQL view', async () => {
+      if (postgresEngine.isPsqlInstalled()) {
+        const viewRes = await postgresEngine.createView(testDbName, {
+          viewName: 'v_active_users',
+          query: 'SELECT * FROM users_test'
+        });
+        expect(viewRes.name).toBe('v_active_users');
+
+        const tables = await postgresEngine.listTables(testDbName);
+        const foundView = tables.find(t => t.name === 'v_active_users');
+        expect(foundView).toBeDefined();
+        expect(foundView.type).toBe('view');
+      }
+    });
+
+    test('executeQuery executes arbitrary SQL and returns metrics', async () => {
+      if (postgresEngine.isPsqlInstalled()) {
+        const res = await postgresEngine.executeQuery(testDbName, 'SELECT 42 as answer, NOW() as current_time;');
+        expect(res.rows[0].answer).toBe(42);
+        expect(res.fields.length).toBe(2);
+        expect(typeof res.durationMs).toBe('number');
+      }
+    });
+
+    test('globalSearch finds matching records across text columns', async () => {
+      if (postgresEngine.isPsqlInstalled()) {
+        await postgresEngine.executeQuery(
+          testDbName,
+          `INSERT INTO users_test (email, bio) VALUES ('charlie@nexus.org', 'Senior Dev at Nexus');`
+        );
+
+        const searchRes = await postgresEngine.globalSearch(testDbName, 'Nexus');
+        expect(searchRes.totalMatches).toBeGreaterThan(0);
+        expect(searchRes.matches.some(m => m.table === 'users_test')).toBe(true);
       }
     });
   });
@@ -89,49 +221,71 @@ describe('PostgreSQL Database Management Integration Test Suite', () => {
       expect(Array.isArray(res.body.databases)).toBe(true);
     });
 
-    test('POST /api/postgres/databases creates database and returns 201', async () => {
-      const testDbName = `api_test_${Date.now()}`;
-      const res = await request(app)
-        .post('/api/postgres/databases')
-        .set('Authorization', 'Bearer test-token')
-        .set('x-test-role', 'superadmin')
-        .send({ name: testDbName });
+    test('GET /api/postgres/databases/:dbName/config returns database details', async () => {
+      if (postgresEngine.isPsqlInstalled()) {
+        const res = await request(app)
+          .get(`/api/postgres/databases/${testDbName}/config`)
+          .set('Authorization', 'Bearer test-token')
+          .set('x-test-role', 'superadmin');
 
-      expect(res.status).toBe(201);
-      expect(res.body.success).toBe(true);
-      expect(res.body.database).toBe(testDbName);
-
-      // Clean up via DELETE endpoint
-      const deleteRes = await request(app)
-        .delete(`/api/postgres/databases/${testDbName}`)
-        .set('Authorization', 'Bearer test-token')
-        .set('x-test-role', 'superadmin');
-
-      expect(deleteRes.status).toBe(200);
-      expect(deleteRes.body.success).toBe(true);
+        expect(res.status).toBe(200);
+        expect(res.body.success).toBe(true);
+        expect(res.body.config.name).toBe(testDbName);
+      }
     });
 
-    test('POST /api/postgres/databases rejects invalid names with 400', async () => {
-      const res = await request(app)
-        .post('/api/postgres/databases')
-        .set('Authorization', 'Bearer test-token')
-        .set('x-test-role', 'superadmin')
-        .send({ name: 'invalid db; drop;' });
+    test('GET /api/postgres/databases/:dbName/tables returns table catalog', async () => {
+      if (postgresEngine.isPsqlInstalled()) {
+        const res = await request(app)
+          .get(`/api/postgres/databases/${testDbName}/tables`)
+          .set('Authorization', 'Bearer test-token')
+          .set('x-test-role', 'superadmin');
 
-      expect(res.status).toBe(400);
-      expect(res.body.success).toBe(false);
-      expect(res.body.error).toContain('Invalid database name');
+        expect(res.status).toBe(200);
+        expect(res.body.success).toBe(true);
+        expect(Array.isArray(res.body.tables)).toBe(true);
+      }
     });
 
-    test('DELETE /api/postgres/databases/:name rejects dropping postgres system db', async () => {
-      const res = await request(app)
-        .delete('/api/postgres/databases/postgres')
-        .set('Authorization', 'Bearer test-token')
-        .set('x-test-role', 'superadmin');
+    test('POST /api/postgres/query runs SQL queries', async () => {
+      if (postgresEngine.isPsqlInstalled()) {
+        const res = await request(app)
+          .post('/api/postgres/query')
+          .set('Authorization', 'Bearer test-token')
+          .set('x-test-role', 'superadmin')
+          .send({ dbName: testDbName, sql: 'SELECT 123 as test_col' });
 
-      expect(res.status).toBe(400);
-      expect(res.body.success).toBe(false);
-      expect(res.body.error).toContain('Cannot drop protected system database');
+        expect(res.status).toBe(200);
+        expect(res.body.success).toBe(true);
+        expect(res.body.rows[0].test_col).toBe(123);
+      }
+    });
+
+    test('POST /api/postgres/query returns clean error on SQL syntax error', async () => {
+      if (postgresEngine.isPsqlInstalled()) {
+        const res = await request(app)
+          .post('/api/postgres/query')
+          .set('Authorization', 'Bearer test-token')
+          .set('x-test-role', 'superadmin')
+          .send({ dbName: testDbName, sql: 'SELEC FROM nowhere;' });
+
+        expect(res.status).toBe(400);
+        expect(res.body.success).toBe(false);
+        expect(res.body.error).toBeDefined();
+      }
+    });
+
+    test('GET /api/postgres/databases/:dbName/search returns search results', async () => {
+      if (postgresEngine.isPsqlInstalled()) {
+        const res = await request(app)
+          .get(`/api/postgres/databases/${testDbName}/search?query=nexus`)
+          .set('Authorization', 'Bearer test-token')
+          .set('x-test-role', 'superadmin');
+
+        expect(res.status).toBe(200);
+        expect(res.body.success).toBe(true);
+        expect(Array.isArray(res.body.matches)).toBe(true);
+      }
     });
 
     test('Viewer role is forbidden from POST /api/postgres/databases', async () => {

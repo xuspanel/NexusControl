@@ -132,6 +132,16 @@ NexusControl features a native, host-level WireGuard mesh VPN engine (`backend/w
 - **Mobile Virtual Touch Bar:** Injects escape sequences (`Ctrl`, `Alt`, `Esc`, `Tab`, arrow keys, signals) for mobile and tablet SSH sessions.
 - **Monaco Code Editor Overlay:** Full desktop IDE experience with syntax highlighting across 30+ languages, search/replace, bracket matching, and `Ctrl+S` persistence.
 
+### 🐘 PostgreSQL Database Management & Data Studio (Phase 1 & 2)
+NexusControl includes a full-fledged, zero-bloat alternative to pgAdmin and PhpMyAdmin for Linux VPS deployments:
+- **Zero-Config Superuser Bootstrapping:** Automatically provisions an isolated `nexuscontrol` superuser with cryptographically generated credentials, stored securely in `.env`.
+- **Dynamic Per-Database Connection Pooling:** Implements `getDbPool(dbName)` to lazily instantiate and cache connection pools per database catalog without service restarts.
+- **Deep Schema Introspection:** Introspects catalogs, row estimates (`pg_stat_user_tables`), active connections (`pg_stat_activity`), foreign key relations, triggers, table privileges, connection limits (`datconnlimit`), and object comments.
+- **Visual Data Grid with Inline Editing:** High-density tabular grid supporting Limit/Offset pagination, column sorting, primary key-safe inline row editing, multi-row bulk deletion, and instant CSV/JSON exports.
+- **Dedicated Monaco SQL Query Console:** Integrated SQL terminal with query execution timing, syntax highlighting, keyboard execution (`Ctrl+Enter`), and result views in both formatted tabular and raw JSON representations.
+- **Global Cross-Table Search:** High-speed text scanner across all `varchar` and `text` columns across all tables in a selected database catalog with grouped match cards.
+- **Zero-Memory `pg_dump` Streaming:** Directly pipes `pg_dump` standard output into Express HTTP responses with `Content-Disposition: attachment` for Full, Schema-only, and Data-only downloads without buffer exhaustion.
+
 ---
 
 ## 3. Deployment & Lifecycle Scripts

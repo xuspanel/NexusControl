@@ -5,6 +5,13 @@ All notable changes to NexusControl will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.3.1] - 2026-09-27
+
+### Fixed
+- **Systemd Cgroup Isolation for In-App Updates:** Spawns `update.sh` inside an independent transient scope (`systemd-run --scope`) with `nohup` fallback, preventing systemd from aborting the update process during daemon restart.
+- **Subshell Environment & PATH Hardening:** Explicitly exports comprehensive binary search paths in `update.sh` and streams output directly to `/opt/NexusControl/update.log`.
+- **Live Build Progress Stream:** Added `GET /api/system/update-log` endpoint and integrated live auto-scrolling terminal output in the in-app update modal.
+
 ## [v1.3.0] - 2026-09-27
 
 ### Added

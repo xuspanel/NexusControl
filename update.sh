@@ -1,5 +1,13 @@
 #!/bin/bash
 set -e
+
+# Ensure full binary search path
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
+
+# Log everything to update.log for debugging
+exec > >(tee -a /opt/NexusControl/update.log) 2>&1
+echo "=== Update started at $(date) ==="
+
 # NexusControl Update Script
 
 export DEBIAN_FRONTEND=noninteractive

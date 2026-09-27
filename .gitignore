@@ -2,6 +2,7 @@
 node_modules/
 frontend/node_modules/
 npm-debug.log
+update.log
 
 # Build Artifacts
 frontend/dist/

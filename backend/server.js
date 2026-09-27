@@ -7,7 +7,7 @@ const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const path = require('node:path');
 const fs = require('node:fs');
-const { spawn } = require('node:child_process');
+const { spawn, execSync } = require('node:child_process');
 
 const collector = require('./collector');
 const osAdapter = require('./osAdapter');
@@ -530,20 +530,75 @@ app.post('/api/system/update', auth.authMiddleware, auth.requireRole(['superadmi
       severity: 'WARNING'
     });
 
-    // 1. Spawn the update script as a detached background process
-    const updateProcess = spawn('bash', ['/opt/NexusControl/update.sh'], {
+    // Clean up any lingering transient scope from previous updates to avoid name collisions
+    try {
+      execSync('systemctl stop nexuscontrol-updater.scope 2>/dev/null; systemctl reset-failed nexuscontrol-updater.scope 2>/dev/null', { timeout: 1500 });
+    } catch (_) {}
+
+    // Run update in an independent systemd scope outside nexuscontrol.service cgroup
+    const updateProcess = spawn('systemd-run', [
+      '--unit=nexuscontrol-updater',
+      '--scope',
+      'bash',
+      '/opt/NexusControl/update.sh'
+    ], {
       detached: true,
-      stdio: 'ignore' // Crucial to prevent hanging on output streams
+      stdio: 'ignore'
     });
 
-    // 2. Unref allows Node to exit independently of the child process
+    updateProcess.on('error', (err) => {
+      console.warn('[Updates] systemd-run invocation error, falling back to nohup:', err?.message);
+      try {
+        const fallback = spawn('nohup', ['bash', '/opt/NexusControl/update.sh'], {
+          detached: true,
+          stdio: 'ignore'
+        });
+        fallback.unref();
+      } catch (fallbackErr) {
+        console.error('[Updates] Fallback runner also failed:', fallbackErr);
+      }
+    });
+
     updateProcess.unref();
 
-    // 3. Immediately respond to the UI so it doesn't get a 502 Bad Gateway
-    res.status(200).json({ message: 'Update initiated successfully. System will reboot momentarily.' });
+    res.status(200).json({ 
+      message: 'Update initiated in independent scope. The dashboard will reboot once build completes.' 
+    });
   } catch (error) {
-    console.error('[Updates] Failed to initiate update process:', error);
-    res.status(500).json({ error: 'Failed to initiate update process.' });
+    console.warn('[Updates] Spawning failed, trying fallback runner:', error?.message);
+    try {
+      // Fallback for non-systemd environments
+      const fallback = spawn('nohup', ['bash', '/opt/NexusControl/update.sh'], {
+        detached: true,
+        stdio: 'ignore'
+      });
+      fallback.unref();
+      res.status(200).json({ message: 'Update initiated via fallback runner.' });
+    } catch (fallbackErr) {
+      console.error('[Updates] Failed to initiate update process:', fallbackErr);
+      res.status(500).json({ error: 'Failed to initiate update process.' });
+    }
+  }
+});
+
+// Expose the last 100 lines of update.log so the UI polling modal can stream build progress
+app.get('/api/system/update-log', auth.authMiddleware, (req, res) => {
+  try {
+    const logFile = '/opt/NexusControl/update.log';
+    if (!fs.existsSync(logFile)) {
+      return res.json({ log: '', lines: [] });
+    }
+    const content = fs.readFileSync(logFile, 'utf8');
+    const allLines = content.split('\n');
+    const recentLines = allLines.slice(-100);
+    res.json({
+      log: recentLines.join('\n'),
+      lines: recentLines,
+      totalLines: allLines.length
+    });
+  } catch (error) {
+    console.error('[Updates] Error reading update log:', error);
+    res.status(500).json({ error: 'Failed to read update log' });
   }
 });
 

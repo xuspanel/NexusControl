@@ -34,11 +34,14 @@ export default function UpdatesView({ token, onShowToast }) {
   const [isUpdating, setIsUpdating] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [updateStage, setUpdateStage] = useState('initiating');
+  const [updateLogs, setUpdateLogs] = useState('');
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [triggeringApi, setTriggeringApi] = useState(false);
 
   const pollIntervalRef = useRef(null);
   const timerIntervalRef = useRef(null);
+  const logIntervalRef = useRef(null);
+  const logEndRef = useRef(null);
 
   const authHeaders = useMemo(() => ({
     'Authorization': `Bearer ${token}`,
@@ -90,8 +93,16 @@ export default function UpdatesView({ token, onShowToast }) {
     return () => {
       if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
       if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+      if (logIntervalRef.current) clearInterval(logIntervalRef.current);
     };
   }, []);
+
+  // Auto-scroll update logs to bottom as lines stream in
+  useEffect(() => {
+    if (logEndRef.current) {
+      logEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [updateLogs]);
 
   const copyUpdateCommand = () => {
     const cmd = 'sudo /opt/NexusControl/update.sh';
@@ -122,23 +133,36 @@ export default function UpdatesView({ token, onShowToast }) {
       setIsUpdating(true);
       setElapsedSeconds(0);
       setUpdateStage('initiating');
+      setUpdateLogs('');
 
       // Start elapsed seconds counter
       timerIntervalRef.current = setInterval(() => {
-        setElapsedSeconds(prev => {
-          const next = prev + 1;
-          if (next >= 45) {
-            setUpdateStage('reconnecting');
-          } else if (next >= 22) {
-            setUpdateStage('compiling');
-          } else if (next >= 8) {
-            setUpdateStage('pulling');
-          } else {
-            setUpdateStage('backup');
-          }
-          return next;
-        });
+        setElapsedSeconds(prev => prev + 1);
       }, 1000);
+
+      // Immediately begin polling real-time update logs
+      logIntervalRef.current = setInterval(async () => {
+        try {
+          const logRes = await fetch('/api/system/update-log', { headers: authHeaders });
+          if (logRes.ok) {
+            const data = await logRes.json();
+            if (data.log) {
+              setUpdateLogs(data.log);
+              if (data.log.includes('Restarting NexusControl Daemon') || data.log.includes('Update Complete!')) {
+                setUpdateStage('reconnecting');
+              } else if (data.log.includes('Rebuilding Frontend') || data.log.includes('Updating Backend Dependencies')) {
+                setUpdateStage('compiling');
+              } else if (data.log.includes('Pulling latest codebase')) {
+                setUpdateStage('pulling');
+              } else if (data.log.includes('Creating state backup')) {
+                setUpdateStage('backup');
+              }
+            }
+          }
+        } catch (_) {
+          // Ignore network dropouts while daemon restarts
+        }
+      }, 1500);
 
       // Give Node 5 seconds to gracefully detach and allow systemctl restart to begin
       setTimeout(() => {
@@ -153,6 +177,7 @@ export default function UpdatesView({ token, onShowToast }) {
             if (checkRes.ok) {
               clearInterval(pollIntervalRef.current);
               clearInterval(timerIntervalRef.current);
+              if (logIntervalRef.current) clearInterval(logIntervalRef.current);
               setUpdateStage('reloaded');
               if (onShowToast) onShowToast('Update completed! Reloading dashboard...', 'success');
               setTimeout(() => {
@@ -168,6 +193,7 @@ export default function UpdatesView({ token, onShowToast }) {
     } catch (err) {
       console.error('[UpdatesView] Update trigger error:', err);
       setIsUpdating(false);
+      if (logIntervalRef.current) clearInterval(logIntervalRef.current);
       if (onShowToast) onShowToast(err.message || 'Failed to start update.', 'error');
     } finally {
       setTriggeringApi(false);
@@ -536,23 +562,23 @@ export default function UpdatesView({ token, onShowToast }) {
 
       {/* Full-Screen Un-closeable Updating Modal Overlay */}
       {isUpdating && (
-        <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center select-none animate-in fade-in duration-300">
-          <div className="max-w-md w-full bg-zinc-900/90 border border-zinc-800 rounded-2xl p-8 shadow-2xl flex flex-col items-center space-y-6">
+        <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex flex-col items-center justify-center p-4 sm:p-6 text-center select-none animate-in fade-in duration-300">
+          <div className="max-w-2xl w-full bg-zinc-900/95 border border-zinc-800 rounded-2xl p-6 sm:p-8 shadow-2xl flex flex-col items-center space-y-5">
             {/* Animated Pulse Ring */}
             <div className="relative">
-              <div className="w-20 h-20 rounded-full bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
-                <RefreshCw className="w-9 h-9 animate-spin text-emerald-400" />
+              <div className="w-16 h-16 rounded-full bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+                <RefreshCw className="w-8 h-8 animate-spin text-emerald-400" />
               </div>
               <div className="absolute inset-0 rounded-full border-2 border-emerald-500/20 animate-ping pointer-events-none" />
             </div>
 
             {/* Title & Warning */}
-            <div className="space-y-2">
+            <div className="space-y-1.5">
               <h2 className="text-xl font-bold tracking-tight text-white flex items-center justify-center gap-2">
                 Updating NexusControl...
               </h2>
-              <p className="text-xs text-zinc-400 leading-relaxed max-w-sm">
-                Please wait while the system safely backs up, rebuilds, and restarts. <strong>Do not close or refresh this tab.</strong>
+              <p className="text-xs text-zinc-400 leading-relaxed max-w-md">
+                Executing isolated update in independent transient scope. <strong>Do not close or refresh this tab.</strong>
               </p>
             </div>
 
@@ -590,9 +616,49 @@ export default function UpdatesView({ token, onShowToast }) {
               </div>
             </div>
 
+            {/* Live Real-time Build Stream */}
+            <div className="w-full bg-black/90 border border-zinc-800/80 rounded-xl p-3 text-left font-mono text-xs flex flex-col h-44 overflow-hidden">
+              <div className="flex items-center justify-between pb-2 mb-2 border-b border-zinc-800/80 text-[11px] text-zinc-400">
+                <div className="flex items-center gap-1.5">
+                  <Terminal className="w-3.5 h-3.5 text-emerald-400" />
+                  <span className="text-zinc-300 font-semibold">Live Build Stream (/opt/NexusControl/update.log)</span>
+                </div>
+                <span className="flex items-center gap-1 text-[10px] text-emerald-400">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  Streaming
+                </span>
+              </div>
+              <div className="flex-1 overflow-y-auto space-y-0.5 text-[11px] text-zinc-300 font-mono scrollbar-thin scrollbar-thumb-zinc-700 select-text">
+                {updateLogs ? (
+                  updateLogs.split('\n').map((line, idx) => (
+                    <div
+                      key={idx}
+                      className={
+                        line.includes('ERROR') || line.includes('failed')
+                          ? 'text-rose-400 font-medium'
+                          : line.includes('===') || line.includes('✅') || line.includes('Initiating')
+                          ? 'text-emerald-400 font-medium'
+                          : line.includes('🎨') || line.includes('⚙️') || line.includes('📦')
+                          ? 'text-amber-300'
+                          : 'text-zinc-300'
+                      }
+                    >
+                      {line}
+                    </div>
+                  ))
+                ) : (
+                  <div className="text-zinc-500 italic flex items-center gap-2 pt-2">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    Connecting to update log pipeline...
+                  </div>
+                )}
+                <div ref={logEndRef} />
+              </div>
+            </div>
+
             <div className="text-[11px] text-zinc-500 font-mono flex items-center gap-1.5">
               <Info className="w-3.5 h-3.5 text-zinc-400" />
-              <span>Polling every 3s • Seamless auto-reload</span>
+              <span>Streaming update logs • Daemon polling every 3s</span>
             </div>
           </div>
         </div>

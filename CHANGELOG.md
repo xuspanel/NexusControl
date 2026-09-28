@@ -5,6 +5,11 @@ All notable changes to NexusControl will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.11.0] - 2026-09-28
+
+### Added
+- **Added:** Firewall & Intrusion Defense module with Fail2ban integration, OS-agnostic port management (Firewalld/UFW), and native offline GeoIP resolution.
+
 ## [v1.10.0] - 2026-09-28
 
 ### Added

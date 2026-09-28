@@ -26,6 +26,7 @@ import PostgresManager from './components/database/PostgresManager';
 import RedisManager from './components/redis/RedisManager';
 import CronManager from './components/cron/CronManager';
 import ProcessAppManager from './components/process/ProcessAppManager';
+import SecurityView from './components/security/SecurityView';
 import TwoFactorBanner from './components/TwoFactorBanner';
 import { AuthProvider } from './context/AuthContext';
 
@@ -317,6 +318,10 @@ export default function App() {
         ) : activeTab === 'process' || activeTab === 'apps' || activeTab === 'applications' || activeTab === 'paas' ? (
           <main className="max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-4">
             <ProcessAppManager token={token} onShowToast={showToast} onNavigateTab={setActiveTab} />
+          </main>
+        ) : activeTab === 'security' || activeTab === 'firewall' || activeTab === 'fail2ban' || activeTab === 'intrusion' ? (
+          <main className="max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-4">
+            <SecurityView token={token} onShowToast={showToast} onNavigateTab={setActiveTab} />
           </main>
         ) : (
           <main className="max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-4">

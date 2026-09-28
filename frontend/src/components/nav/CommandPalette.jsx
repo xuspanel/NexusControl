@@ -21,6 +21,7 @@ import {
   Zap,
   Clock,
   Layers,
+  ShieldAlert,
   X
 } from 'lucide-react';
 import { getNavItemsForRole } from '../../config/navigation';
@@ -215,6 +216,20 @@ export default function CommandPalette({
         roles: ['superadmin', 'operator', 'viewer'],
         action: () => {
           onSelectTab('process');
+        }
+      },
+      {
+        id: 'manage_security',
+        module: 'security',
+        type: 'action',
+        category: 'Quick Actions',
+        label: 'Manage Firewall & Fail2ban Intrusion Defense',
+        description: 'Configure UFW/Firewalld port rules, inspect jails, and unban malicious IPs',
+        icon: ShieldAlert,
+        shortcut: 'Alt + F',
+        roles: ['superadmin', 'operator', 'viewer'],
+        action: () => {
+          onSelectTab('security');
         }
       },
       {

@@ -152,6 +152,12 @@ NexusControl turns your Linux VPS into a zero-dependency PaaS deployment engine 
 - **Environment Isolation:** Stores and manages per-app environment variables in `/opt/NexusControl/apps/[name]/.env` with automated service reload on edit.
 - **Live Chunked Journalctl Streaming:** Connects to native `journald` and streams real-time console logs directly to the web dashboard via HTTP chunked transfer.
 
+### 🛡️ Firewall & Intrusion Defense (Fail2ban & GeoIP)
+- **OS-Agnostic Packet Filtering:** Auto-detects and abstracts host firewalls (`ufw` on Debian/Ubuntu and `firewalld` on AlmaLinux/RHEL). Open and close TCP/UDP ports with zero daemon downtime.
+- **Fail2ban Jail Integration:** Interrogates active jails (`fail2ban-client status <jail>`), displaying real-time banned IP lists, block counts, and one-click unban capability.
+- **Offline GeoIP Resolution:** Enriches attacker IPs with zero-latency offline city and country flag lookups (`geoip-lite`), visualizing attack origins directly on the dashboard.
+- **Manual Threat Mitigation:** Provides one-click instant manual IP banning to immediately isolate suspicious network traffic.
+
 ---
 
 ## 3. Deployment & Lifecycle Scripts

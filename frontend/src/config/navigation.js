@@ -14,7 +14,8 @@ import {
   Database,
   Zap,
   Clock,
-  Layers
+  Layers,
+  ShieldAlert
 } from 'lucide-react';
 
 /**
@@ -181,6 +182,16 @@ export const NAV_ITEMS = [
     shortcut: 'p',
     primaryMobile: false,
     roles: ['superadmin', 'operator', 'viewer']
+  },
+  {
+    id: 'security',
+    label: 'Firewall & Shield',
+    description: 'Host firewall (UFW/Firewalld), port rules & Fail2ban intrusion defense',
+    icon: 'ShieldAlert',
+    iconComponent: ShieldAlert,
+    shortcut: 'f',
+    primaryMobile: false,
+    roles: ['superadmin', 'operator', 'viewer']
   }
 ];
 
@@ -190,8 +201,8 @@ export const NAV_SHORTCUTS = NAV_ITEMS.reduce((acc, item) => {
 }, {});
 
 export function getNavItem(id) {
-  // Support aliases: 'telemetry' -> 'overview', 'domains' -> 'vhosts', 'vpn' -> 'network', 'wireguard' -> 'network', 'settings' -> 'updates', 'optimizer' -> 'wizard', 'postgres' -> 'database', 'cache' -> 'redis', 'tasks' -> 'cron', 'crontab' -> 'cron', 'apps' -> 'process', 'applications' -> 'process', 'paas' -> 'process'
-  const normalized = id === 'telemetry' ? 'overview' : id === 'domains' ? 'vhosts' : (id === 'vpn' || id === 'wireguard') ? 'network' : id === 'settings' ? 'updates' : id === 'optimizer' ? 'wizard' : id === 'postgres' ? 'database' : id === 'cache' ? 'redis' : (id === 'tasks' || id === 'crontab') ? 'cron' : (id === 'apps' || id === 'applications' || id === 'paas') ? 'process' : id;
+  // Support aliases: 'telemetry' -> 'overview', 'domains' -> 'vhosts', 'vpn' -> 'network', 'wireguard' -> 'network', 'settings' -> 'updates', 'optimizer' -> 'wizard', 'postgres' -> 'database', 'cache' -> 'redis', 'tasks' -> 'cron', 'crontab' -> 'cron', 'apps' -> 'process', 'applications' -> 'process', 'paas' -> 'process', 'firewall' -> 'security', 'fail2ban' -> 'security', 'intrusion' -> 'security'
+  const normalized = id === 'telemetry' ? 'overview' : id === 'domains' ? 'vhosts' : (id === 'vpn' || id === 'wireguard') ? 'network' : id === 'settings' ? 'updates' : id === 'optimizer' ? 'wizard' : id === 'postgres' ? 'database' : id === 'cache' ? 'redis' : (id === 'tasks' || id === 'crontab') ? 'cron' : (id === 'apps' || id === 'applications' || id === 'paas') ? 'process' : (id === 'firewall' || id === 'fail2ban' || id === 'intrusion') ? 'security' : id;
   return NAV_ITEMS.find(item => item.id === normalized) || NAV_ITEMS[0];
 }
 

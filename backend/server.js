@@ -39,6 +39,7 @@ const postgresRouter = require('./postgresRouter');
 const redisRouter = require('./redisRouter');
 const cronRouter = require('./cronRouter');
 const processRouter = require('./processRouter');
+const securityRouter = require('./securityRouter');
 
 // Ensure system storage directories exist on boot
 trash.initTrash().then(() => console.log('[BOOT] Trash directory initialized at /opt/NexusControl/.trash')).catch(err => console.error('[BOOT ERROR] Trash init:', err));
@@ -736,6 +737,9 @@ app.use('/api/cron', auth.authMiddleware, cronRouter);
 
 // Protected Process & Application Manager Endpoints
 app.use('/api/process', auth.authMiddleware, processRouter);
+
+// Protected Firewall & Intrusion Defense Endpoints
+app.use('/api/security', auth.authMiddleware, securityRouter);
 
 if (process.env.NODE_ENV !== 'test') {
   dockerEngine.startBackgroundSampling(3500);

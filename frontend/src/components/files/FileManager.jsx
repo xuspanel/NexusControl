@@ -283,6 +283,58 @@ export default function FileManager({ token, onShowToast }) {
     }
   };
 
+  // Smart path navigation for PathAutocomplete address bar
+  const handleNavigatePath = async (targetPath, isDirHint) => {
+    if (!targetPath) return;
+    const cleanPath = targetPath.trim();
+    if (!cleanPath) return;
+
+    let isDir = isDirHint;
+
+    // If type not specified, check if trailing slash or probe via list API
+    if (isDir === undefined) {
+      if (cleanPath.endsWith('/')) {
+        isDir = true;
+      } else {
+        try {
+          const res = await fetch(`/api/files/list?path=${encodeURIComponent(cleanPath)}`, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          isDir = res.ok;
+        } catch {
+          isDir = false;
+        }
+      }
+    }
+
+    if (isDir) {
+      const normalizedDir = cleanPath.length > 1 && cleanPath.endsWith('/') ? cleanPath.slice(0, -1) : cleanPath;
+      if (normalizedDir === currentPath) {
+        fetchDirectory(currentPath);
+      } else {
+        navigateTo(normalizedDir);
+      }
+    } else {
+      // It is a file: extract parent dir and file name
+      const cleanFilePath = cleanPath.endsWith('/') ? cleanPath.slice(0, -1) : cleanPath;
+      const lastSlashIdx = cleanFilePath.lastIndexOf('/');
+      const parentDir = lastSlashIdx <= 0 ? '/' : cleanFilePath.slice(0, lastSlashIdx);
+      const fileName = cleanFilePath.slice(lastSlashIdx + 1);
+
+      // Navigate to parent directory if different
+      if (parentDir !== currentPath) {
+        navigateTo(parentDir);
+      }
+
+      // Automatically trigger file preview/editor logic
+      handleOpenItem({
+        path: cleanFilePath,
+        name: fileName,
+        isDirectory: false
+      });
+    }
+  };
+
   // Download item using authenticated fetch & blob
   const handleDownload = async (item) => {
     if (!item || !item.path) return;
@@ -809,6 +861,8 @@ export default function FileManager({ token, onShowToast }) {
         onGoForward={handleGoForward}
         onGoUp={handleGoUp}
         onNavigate={navigateTo}
+        onNavigatePath={handleNavigatePath}
+        token={token}
         onRefresh={() => fetchDirectory(currentPath)}
         onOpenKeyboardGuide={() => setIsKeyboardGuideOpen(true)}
         onCreateFolder={handleCreateFolder}

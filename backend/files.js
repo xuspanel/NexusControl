@@ -600,7 +600,7 @@ async function searchFiles(baseDir, query, contentSearch = false, isRegex = fals
   return results;
 }
 
-async function autocompleteDirectories(baseDir, prefix = '') {
+async function autocompleteDirectories(baseDir, prefix = '', type = 'dir') {
   try {
     const entries = await fsp.readdir(baseDir, { withFileTypes: true });
     const prefixLower = prefix.toLowerCase();
@@ -609,25 +609,50 @@ async function autocompleteDirectories(baseDir, prefix = '') {
     for (const dirent of entries) {
       if (prefix === '' || dirent.name.toLowerCase().startsWith(prefixLower)) {
         let isDir = dirent.isDirectory();
-        if (!isDir && dirent.isSymbolicLink()) {
+        let isFile = dirent.isFile();
+        if (dirent.isSymbolicLink()) {
           try {
             const st = await fsp.stat(path.join(baseDir, dirent.name));
             if (st.isDirectory()) isDir = true;
+            else if (st.isFile()) isFile = true;
           } catch {}
         }
-        if (isDir) {
-          const fullPath = baseDir === '/' ? `/${dirent.name}` : `${baseDir}/${dirent.name}`;
-          matches.push(fullPath);
+
+        const fullPath = baseDir === '/' ? `/${dirent.name}` : `${baseDir}/${dirent.name}`;
+
+        if (type === 'all') {
+          if (isDir || isFile) {
+            matches.push({
+              path: fullPath,
+              name: dirent.name,
+              isDirectory: isDir
+            });
+          }
+        } else {
+          if (isDir) {
+            matches.push(fullPath);
+          }
         }
       }
     }
 
-    matches.sort((a, b) => a.localeCompare(b));
+    matches.sort((a, b) => {
+      if (type === 'all') {
+        if (a.isDirectory !== b.isDirectory) {
+          return a.isDirectory ? -1 : 1; // Directories first
+        }
+        return a.path.localeCompare(b.path);
+      }
+      return a.localeCompare(b);
+    });
+
     return matches;
   } catch {
     return [];
   }
 }
+
+const autocompletePaths = autocompleteDirectories;
 
 module.exports = {
   sanitizePath,
@@ -647,5 +672,6 @@ module.exports = {
   deletePermanent,
   getMounts,
   searchFiles,
-  autocompleteDirectories
+  autocompleteDirectories,
+  autocompletePaths
 };

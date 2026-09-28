@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Menu,
   ArrowLeft,
@@ -19,6 +19,7 @@ import {
   FolderInput,
   Keyboard
 } from 'lucide-react';
+import PathAutocomplete from './PathAutocomplete';
 
 export default function FileTopBar({
   currentPath,
@@ -28,6 +29,8 @@ export default function FileTopBar({
   onGoForward,
   onGoUp,
   onNavigate,
+  onNavigatePath,
+  token,
   onRefresh,
   onOpenKeyboardGuide,
   onCreateFolder,
@@ -50,6 +53,23 @@ export default function FileTopBar({
 }) {
   const [isEditingPath, setIsEditingPath] = useState(false);
   const [manualPath, setManualPath] = useState(currentPath);
+  const editContainerRef = useRef(null);
+
+  useEffect(() => {
+    setManualPath(currentPath);
+  }, [currentPath]);
+
+  // Click outside to cancel editing
+  useEffect(() => {
+    if (!isEditingPath) return;
+    const handleClickOutside = (e) => {
+      if (editContainerRef.current && !editContainerRef.current.contains(e.target)) {
+        setIsEditingPath(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isEditingPath]);
 
   const handleBreadcrumbClick = (index, segments) => {
     if (index === -1) {
@@ -60,18 +80,10 @@ export default function FileTopBar({
     onNavigate(newPath);
   };
 
-  const handlePathSubmit = (e) => {
-    e.preventDefault();
-    setIsEditingPath(false);
-    if (manualPath.trim()) {
-      onNavigate(manualPath.trim());
-    }
-  };
-
   const pathSegments = currentPath === '/' ? [] : currentPath.split('/').filter(Boolean);
 
   return (
-    <header className="bg-white/95 dark:bg-zinc-950/90 border-b border-zinc-200 dark:border-zinc-800/80 px-2.5 sm:px-4 py-2 sm:py-2.5 flex flex-col gap-2 select-none">
+    <header className="bg-white/95 dark:bg-zinc-950/90 border-b border-zinc-200 dark:border-zinc-800/80 px-2.5 sm:px-4 py-2 sm:py-2.5 flex flex-col gap-2 select-none relative z-30">
       {/* Top Bar: Navigation & Quick Actions */}
       <div className="flex items-center justify-between gap-2">
         {/* Mobile Hamburger Drawer Trigger */}
@@ -115,29 +127,61 @@ export default function FileTopBar({
           </div>
 
           {/* Breadcrumbs / Path Input */}
-          <div className="flex-1 min-w-0 bg-zinc-100/90 dark:bg-zinc-900/80 border border-zinc-200 dark:border-zinc-800 rounded-md px-2.5 sm:px-3 py-1.5 flex items-center font-mono text-xs text-zinc-800 dark:text-zinc-300 overflow-hidden min-h-[40px]">
+          <div
+            ref={editContainerRef}
+            className={`flex-1 min-w-0 bg-zinc-100/90 dark:bg-zinc-900/80 border border-zinc-200 dark:border-zinc-800 rounded-md ${
+              isEditingPath ? 'p-1 relative z-30' : 'px-2.5 sm:px-3 py-1.5 overflow-hidden'
+            } flex items-center font-mono text-xs text-zinc-800 dark:text-zinc-300 min-h-[40px]`}
+          >
             {isEditingPath ? (
-              <form onSubmit={handlePathSubmit} className="flex-1 flex items-center">
-                <input
-                  type="text"
+              <div className="flex-1 flex items-center gap-1.5 w-full">
+                <PathAutocomplete
                   value={manualPath}
-                  onChange={(e) => setManualPath(e.target.value)}
-                  onBlur={() => setIsEditingPath(false)}
+                  onChange={setManualPath}
+                  token={token}
+                  includeFiles={true}
                   autoFocus
-                  className="w-full bg-transparent text-emerald-600 dark:text-emerald-400 outline-none font-mono text-xs"
+                  placeholder="Type directory or file path..."
+                  className="flex-1"
+                  onNavigate={(navPath, isDir) => {
+                    setIsEditingPath(false);
+                    if (onNavigatePath) {
+                      onNavigatePath(navPath, isDir);
+                    } else {
+                      onNavigate(navPath);
+                    }
+                  }}
+                  onCancel={() => setIsEditingPath(false)}
                 />
-              </form>
+                <button
+                  type="button"
+                  onClick={() => setIsEditingPath(false)}
+                  className="p-1.5 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-800 rounded transition-colors shrink-0"
+                  title="Close (Esc)"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
             ) : (
               <div
+                onClick={(e) => {
+                  if (e.target === e.currentTarget) {
+                    setManualPath(currentPath);
+                    setIsEditingPath(true);
+                  }
+                }}
                 onDoubleClick={() => {
                   setManualPath(currentPath);
                   setIsEditingPath(true);
                 }}
                 className="flex items-center gap-1 overflow-x-auto whitespace-nowrap no-scrollbar touch-pan-x cursor-text w-full py-0.5"
-                title="Double click or tap to edit path"
+                title="Click or double-click to edit path"
               >
                 <button
-                  onClick={() => handleBreadcrumbClick(-1, [])}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleBreadcrumbClick(-1, []);
+                  }}
                   className="hover:text-emerald-600 dark:hover:text-emerald-400 text-zinc-500 dark:text-zinc-400 hover:underline px-1 py-0.5 rounded"
                 >
                   /
@@ -146,7 +190,10 @@ export default function FileTopBar({
                   <React.Fragment key={idx}>
                     <span className="text-zinc-400 dark:text-zinc-600">/</span>
                     <button
-                      onClick={() => handleBreadcrumbClick(idx, pathSegments)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleBreadcrumbClick(idx, pathSegments);
+                      }}
                       className={`hover:text-emerald-600 dark:hover:text-emerald-400 px-1 py-0.5 rounded transition-colors ${
                         idx === pathSegments.length - 1
                           ? 'text-zinc-900 dark:text-zinc-100 font-semibold'

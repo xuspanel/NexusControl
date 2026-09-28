@@ -140,6 +140,7 @@ router.get('/list', async (req, res) => {
 router.get('/autocomplete', async (req, res) => {
   try {
     const rawQuery = (req.query.query || '').trim();
+    const type = req.query.type === 'all' ? 'all' : 'dir';
     if (rawQuery.includes('\0')) {
       return res.status(400).json({ error: 'Null byte injection detected in path.' });
     }
@@ -171,7 +172,7 @@ router.get('/autocomplete', async (req, res) => {
       }
     }
 
-    const matches = await files.autocompleteDirectories(baseDir, prefix);
+    const matches = await files.autocompleteDirectories(baseDir, prefix, type);
     res.json(matches);
   } catch (err) {
     res.status(500).json({ error: err.message });

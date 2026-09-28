@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Folder, Loader2 } from 'lucide-react';
+import { Folder, FolderTree, FileText, Loader2 } from 'lucide-react';
 
 export default function PathAutocomplete({
   value = '',
@@ -9,7 +9,10 @@ export default function PathAutocomplete({
   disabled = false,
   autoFocus = false,
   className = '',
-  onEnterSubmit
+  onEnterSubmit,
+  includeFiles = false,
+  onNavigate,
+  onCancel
 }) {
   const [suggestions, setSuggestions] = useState([]);
   const [isOpen, setIsOpen] = useState(false);
@@ -21,13 +24,17 @@ export default function PathAutocomplete({
   const debounceTimerRef = useRef(null);
   const itemRefs = useRef([]);
 
-  // Fetch directory suggestions from backend
+  const getItemPath = (item) => (typeof item === 'object' && item !== null ? item.path : item);
+  const getItemIsDir = (item) => (typeof item === 'object' && item !== null ? Boolean(item.isDirectory) : true);
+
+  // Fetch suggestions from backend
   const fetchSuggestions = useCallback(
     async (query) => {
       if (!token) return;
       setIsLoading(true);
       try {
-        const res = await fetch(`/api/files/autocomplete?query=${encodeURIComponent(query || '/')}`, {
+        const typeParam = includeFiles ? '&type=all' : '&type=dir';
+        const res = await fetch(`/api/files/autocomplete?query=${encodeURIComponent(query || '/')}${typeParam}`, {
           headers: { Authorization: `Bearer ${token}` }
         });
         if (res.ok) {
@@ -44,7 +51,7 @@ export default function PathAutocomplete({
         setIsLoading(false);
       }
     },
-    [token]
+    [token, includeFiles]
   );
 
   // Debounced input change handler
@@ -85,14 +92,18 @@ export default function PathAutocomplete({
     }
   }, [selectedIndex]);
 
-  // Handle suggestion selection
-  const handleSelectSuggestion = (path) => {
-    // Add trailing slash for directories to ease further navigation
-    const formatted = path.endsWith('/') ? path : `${path}/`;
+  // Handle suggestion selection (e.g. Tab completion or directory expansion)
+  const handleSelectSuggestion = (item) => {
+    const pathStr = getItemPath(item);
+    const isDir = getItemIsDir(item);
+    const formatted = isDir && !pathStr.endsWith('/') ? `${pathStr}/` : pathStr;
     onChange?.(formatted);
     inputRef.current?.focus();
-    // Re-fetch child directories immediately
-    fetchSuggestions(formatted);
+    if (isDir) {
+      fetchSuggestions(formatted);
+    } else {
+      setIsOpen(false);
+    }
   };
 
   // Keyboard navigation inside dropdown
@@ -113,14 +124,29 @@ export default function PathAutocomplete({
     } else if (e.key === 'Enter') {
       if (isOpen && selectedIndex >= 0 && suggestions[selectedIndex]) {
         e.preventDefault();
-        handleSelectSuggestion(suggestions[selectedIndex]);
+        const target = suggestions[selectedIndex];
+        const pathStr = getItemPath(target);
+        const isDir = getItemIsDir(target);
+        if (onNavigate) {
+          setIsOpen(false);
+          onNavigate(pathStr, isDir);
+        } else {
+          handleSelectSuggestion(target);
+        }
+      } else if (onNavigate) {
+        e.preventDefault();
+        setIsOpen(false);
+        onNavigate(value.trim());
       } else if (onEnterSubmit) {
-        // Dropdown closed or no item selected: allow form submission
         onEnterSubmit(e);
       }
     } else if (e.key === 'Escape') {
       e.preventDefault();
-      setIsOpen(false);
+      if (isOpen) {
+        setIsOpen(false);
+      } else if (onCancel) {
+        onCancel();
+      }
     } else if (e.key === 'Tab') {
       if (isOpen && suggestions.length > 0) {
         e.preventDefault();
@@ -133,7 +159,11 @@ export default function PathAutocomplete({
   return (
     <div ref={containerRef} className={`relative w-full ${className}`}>
       <div className="relative flex items-center">
-        <Folder className="absolute left-3 w-4 h-4 text-zinc-400 dark:text-zinc-500 pointer-events-none" />
+        {includeFiles ? (
+          <FolderTree className="absolute left-3 w-4 h-4 text-zinc-400 dark:text-zinc-500 pointer-events-none" />
+        ) : (
+          <Folder className="absolute left-3 w-4 h-4 text-zinc-400 dark:text-zinc-500 pointer-events-none" />
+        )}
         <input
           ref={inputRef}
           type="text"
@@ -158,25 +188,50 @@ export default function PathAutocomplete({
       {/* Floating Suggestions Dropdown */}
       {isOpen && suggestions.length > 0 && (
         <ul className="absolute z-50 left-0 right-0 mt-1 max-h-56 overflow-y-auto rounded-lg shadow-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 py-1 font-mono text-xs divide-y divide-zinc-100 dark:divide-zinc-800/40">
-          {suggestions.map((dirPath, idx) => {
+          {suggestions.map((item, idx) => {
             const isHighlighted = idx === selectedIndex;
+            const pathStr = getItemPath(item);
+            const isDir = getItemIsDir(item);
+
             return (
               <li
-                key={dirPath}
+                key={pathStr + idx}
                 ref={(el) => (itemRefs.current[idx] = el)}
                 onMouseDown={(e) => {
                   e.preventDefault(); // Prevent input blur
-                  handleSelectSuggestion(dirPath);
+                  if (onNavigate) {
+                    setIsOpen(false);
+                    onNavigate(pathStr, isDir);
+                  } else {
+                    handleSelectSuggestion(item);
+                  }
                 }}
                 onMouseEnter={() => setSelectedIndex(idx)}
-                className={`px-3 py-2 flex items-center gap-2 cursor-pointer transition-colors ${
+                className={`px-3 py-2 flex items-center justify-between gap-2 cursor-pointer transition-colors ${
                   isHighlighted
                     ? 'bg-blue-500/15 text-blue-600 dark:text-blue-400 font-medium'
                     : 'text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-900'
                 }`}
               >
-                <Folder className="w-3.5 h-3.5 shrink-0 text-blue-500/80" />
-                <span className="truncate">{dirPath}</span>
+                <div className="flex items-center gap-2 min-w-0 flex-1">
+                  {isDir ? (
+                    <Folder className="w-3.5 h-3.5 shrink-0 text-amber-500/90 dark:text-amber-400" />
+                  ) : (
+                    <FileText className="w-3.5 h-3.5 shrink-0 text-blue-500/90 dark:text-blue-400" />
+                  )}
+                  <span className="truncate">{pathStr}</span>
+                </div>
+                {includeFiles && (
+                  <span
+                    className={`text-[10px] font-sans uppercase shrink-0 px-1.5 py-0.5 rounded font-semibold ${
+                      isDir
+                        ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                        : 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
+                    }`}
+                  >
+                    {isDir ? 'dir' : 'file'}
+                  </span>
+                )}
               </li>
             );
           })}

@@ -37,6 +37,7 @@ const wizardEngine = require('./wizardEngine');
 const postgresEngine = require('./postgresEngine');
 const postgresRouter = require('./postgresRouter');
 const redisRouter = require('./redisRouter');
+const cronRouter = require('./cronRouter');
 
 // Ensure system storage directories exist on boot
 trash.initTrash().then(() => console.log('[BOOT] Trash directory initialized at /opt/NexusControl/.trash')).catch(err => console.error('[BOOT ERROR] Trash init:', err));
@@ -728,6 +729,9 @@ app.use('/api/postgres', auth.authMiddleware, postgresRouter);
 
 // Protected Redis Key-Value Cache Engine Endpoints
 app.use('/api/redis', auth.authMiddleware, redisRouter);
+
+// Protected Cron & Scheduled Tasks Manager Endpoints
+app.use('/api/cron', auth.authMiddleware, cronRouter);
 
 if (process.env.NODE_ENV !== 'test') {
   dockerEngine.startBackgroundSampling(3500);

@@ -1,6 +1,6 @@
 {
   "name": "nexuscontrol",
-  "version": "1.8.0",
+  "version": "1.9.0",
   "description": "Enterprise VPS Monitoring & Operations Dashboard",
   "main": "backend/server.js",
   "scripts": {

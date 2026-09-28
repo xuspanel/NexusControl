@@ -19,6 +19,7 @@ import {
   Bell,
   Database,
   Zap,
+  Clock,
   X
 } from 'lucide-react';
 import { getNavItemsForRole } from '../../config/navigation';
@@ -185,6 +186,20 @@ export default function CommandPalette({
         roles: ['superadmin', 'operator', 'viewer'],
         action: () => {
           onSelectTab('redis');
+        }
+      },
+      {
+        id: 'manage_cron',
+        module: 'cron',
+        type: 'action',
+        category: 'Quick Actions',
+        label: 'Manage Cron Jobs & Scheduled Tasks',
+        description: 'View active crontabs, schedule recurring tasks & stream live runs',
+        icon: Clock,
+        shortcut: 'Alt + C',
+        roles: ['superadmin', 'operator', 'viewer'],
+        action: () => {
+          onSelectTab('cron');
         }
       },
       {

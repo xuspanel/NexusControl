@@ -17,6 +17,8 @@ let deleteUserStmt;
 let countUsersStmt;
 let countSuperadminsStmt;
 let updateUserPoliciesStmt;
+let insertCronHistoryStmt;
+let selectCronHistoryStmt;
 
 const VALID_ROLES = ['superadmin', 'operator', 'viewer', 'custom'];
 
@@ -82,6 +84,18 @@ function initDb(databaseInstance) {
   for (const sql of smtpColumns) {
     try { db.exec(sql); } catch {}
   }
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS cron_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      command TEXT,
+      exit_code INTEGER,
+      stdout TEXT,
+      stderr TEXT,
+      duration_ms INTEGER,
+      executed_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
 
   selectUserByUsernameStmt = db.prepare(`
     SELECT * FROM users WHERE username = ? COLLATE NOCASE
@@ -360,6 +374,45 @@ function deleteUser(id, requestingUserId = null) {
   return { success: true, id, username: user.username };
 }
 
+function recordCronExecution(command, exitCode, stdout, stderr, durationMs) {
+  try {
+    if (!insertCronHistoryStmt) {
+      insertCronHistoryStmt = db.prepare(`
+        INSERT INTO cron_history (command, exit_code, stdout, stderr, duration_ms, executed_at)
+        VALUES (?, ?, ?, ?, ?, datetime('now'))
+      `);
+    }
+    const result = insertCronHistoryStmt.run(
+      command || '',
+      typeof exitCode === 'number' ? exitCode : 0,
+      stdout || '',
+      stderr || '',
+      durationMs || 0
+    );
+    return { success: true, id: result.lastInsertRowid };
+  } catch (err) {
+    console.error('[DB] recordCronExecution error:', err);
+    return { success: false, error: err.message };
+  }
+}
+
+function getCronHistory(limit = 100) {
+  try {
+    if (!selectCronHistoryStmt) {
+      selectCronHistoryStmt = db.prepare(`
+        SELECT id, command, exit_code, stdout, stderr, duration_ms, executed_at
+        FROM cron_history
+        ORDER BY id DESC
+        LIMIT ?
+      `);
+    }
+    return selectCronHistoryStmt.all(Number(limit) || 100);
+  } catch (err) {
+    console.error('[DB] getCronHistory error:', err);
+    return [];
+  }
+}
+
 module.exports = {
   get db() { return db; },
   initDb,
@@ -377,6 +430,8 @@ module.exports = {
   deleteUser,
   seedInitialAdmin,
   parsePolicies,
-  formatPolicies
+  formatPolicies,
+  recordCronExecution,
+  getCronHistory
 };
 

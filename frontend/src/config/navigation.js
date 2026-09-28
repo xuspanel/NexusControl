@@ -12,7 +12,8 @@ import {
   Sparkles,
   Wand2,
   Database,
-  Zap
+  Zap,
+  Clock
 } from 'lucide-react';
 
 /**
@@ -159,6 +160,16 @@ export const NAV_ITEMS = [
     shortcut: 'r',
     primaryMobile: false,
     roles: ['superadmin', 'operator', 'viewer']
+  },
+  {
+    id: 'cron',
+    label: 'Cron & Tasks',
+    description: 'Crontab supervisor, systemd timers, visual scheduler & execution logs',
+    icon: 'Clock',
+    iconComponent: Clock,
+    shortcut: 'c',
+    primaryMobile: false,
+    roles: ['superadmin', 'operator', 'viewer']
   }
 ];
 
@@ -168,8 +179,8 @@ export const NAV_SHORTCUTS = NAV_ITEMS.reduce((acc, item) => {
 }, {});
 
 export function getNavItem(id) {
-  // Support aliases: 'telemetry' -> 'overview', 'domains' -> 'vhosts', 'vpn' -> 'network', 'wireguard' -> 'network', 'settings' -> 'updates', 'optimizer' -> 'wizard', 'postgres' -> 'database', 'cache' -> 'redis'
-  const normalized = id === 'telemetry' ? 'overview' : id === 'domains' ? 'vhosts' : (id === 'vpn' || id === 'wireguard') ? 'network' : id === 'settings' ? 'updates' : id === 'optimizer' ? 'wizard' : id === 'postgres' ? 'database' : id === 'cache' ? 'redis' : id;
+  // Support aliases: 'telemetry' -> 'overview', 'domains' -> 'vhosts', 'vpn' -> 'network', 'wireguard' -> 'network', 'settings' -> 'updates', 'optimizer' -> 'wizard', 'postgres' -> 'database', 'cache' -> 'redis', 'tasks' -> 'cron', 'crontab' -> 'cron'
+  const normalized = id === 'telemetry' ? 'overview' : id === 'domains' ? 'vhosts' : (id === 'vpn' || id === 'wireguard') ? 'network' : id === 'settings' ? 'updates' : id === 'optimizer' ? 'wizard' : id === 'postgres' ? 'database' : id === 'cache' ? 'redis' : (id === 'tasks' || id === 'crontab') ? 'cron' : id;
   return NAV_ITEMS.find(item => item.id === normalized) || NAV_ITEMS[0];
 }
 

@@ -24,6 +24,7 @@ import UpdatesView from './components/settings/UpdatesView';
 import SystemWizard from './components/wizard/SystemWizard';
 import PostgresManager from './components/database/PostgresManager';
 import RedisManager from './components/redis/RedisManager';
+import CronManager from './components/cron/CronManager';
 import TwoFactorBanner from './components/TwoFactorBanner';
 import { AuthProvider } from './context/AuthContext';
 
@@ -307,6 +308,10 @@ export default function App() {
         ) : activeTab === 'redis' || activeTab === 'cache' ? (
           <main className="max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-4">
             <RedisManager token={token} onShowToast={showToast} onNavigateTab={setActiveTab} />
+          </main>
+        ) : activeTab === 'cron' || activeTab === 'tasks' || activeTab === 'crontab' ? (
+          <main className="max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-4">
+            <CronManager token={token} onShowToast={showToast} onNavigateTab={setActiveTab} />
           </main>
         ) : (
           <main className="max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-4">

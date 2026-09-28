@@ -15,6 +15,7 @@ export default function KeyboardShortcutsModal({ isOpen, onClose }) {
   if (!isOpen) return null;
 
   const shortcuts = [
+    { keys: ['Ctrl', 'Click'], desc: 'Multi-Select', detail: 'Toggle selection of individual items without clearing active selection' },
     { keys: ['Ctrl', 'A'], desc: 'Select All', detail: 'Select all files and folders in the current directory' },
     { keys: ['Ctrl', 'C'], desc: 'Copy', detail: 'Copy selected items to clipboard' },
     { keys: ['Ctrl', 'X'], desc: 'Cut', detail: 'Cut selected items to clipboard for moving' },

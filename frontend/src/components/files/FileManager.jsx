@@ -37,8 +37,36 @@ export default function FileManager({ token, onShowToast }) {
   const [isContentSearch, setIsContentSearch] = useState(false);
 
   // Selection & Clipboard
-  const [selectedPaths, setSelectedPaths] = useState(new Set());
+  const [selectedItems, setSelectedItems] = useState([]); // Stores an array of file/folder names or paths
   const [clipboard, setClipboard] = useState({ mode: null, items: [] });
+  const holdTimeout = useRef(null);
+
+  // Derive selectedPaths from selectedItems for backwards compatibility with batch operations
+  const selectedPaths = useMemo(() => {
+    const set = new Set();
+    for (const it of items) {
+      if (selectedItems.includes(it.name) || selectedItems.includes(it.path)) {
+        set.add(it.path);
+      }
+    }
+    return set;
+  }, [selectedItems, items]);
+
+  const setSelectedPaths = useCallback((updater) => {
+    if (typeof updater === 'function') {
+      setSelectedItems((prev) => {
+        const prevSet = new Set(
+          items.filter((i) => prev.includes(i.name) || prev.includes(i.path)).map((i) => i.path)
+        );
+        const nextSet = updater(prevSet);
+        const nextPaths = Array.from(nextSet);
+        return items.filter((i) => nextPaths.includes(i.path)).map((i) => i.name);
+      });
+    } else {
+      const arr = Array.from(updater || []);
+      setSelectedItems(items.filter((i) => arr.includes(i.path) || arr.includes(i.name)).map((i) => i.name));
+    }
+  }, [items]);
 
   // Context Menu State
   const [contextMenu, setContextMenu] = useState(null); // { x, y, targetItem }
@@ -87,14 +115,11 @@ export default function FileManager({ token, onShowToast }) {
       setItems(newItems);
 
       // Reconcile selections: preserve existing selections that still exist
-      setSelectedPaths((prev) => {
-        if (prev.size === 0) return prev;
+      setSelectedItems((prev) => {
+        if (!prev || prev.length === 0) return [];
+        const validNames = new Set(newItems.map((i) => i.name));
         const validPaths = new Set(newItems.map((i) => i.path));
-        const next = new Set();
-        for (const p of prev) {
-          if (validPaths.has(p)) next.add(p);
-        }
-        return next;
+        return prev.filter((val) => validNames.has(val) || validPaths.has(val));
       });
     } catch (err) {
       onShowToast?.(`Error: ${err.message}`, 'error');
@@ -110,7 +135,7 @@ export default function FileManager({ token, onShowToast }) {
 
   // Reset selections ONLY when navigating to a different folder path
   useEffect(() => {
-    setSelectedPaths(new Set());
+    setSelectedItems([]);
   }, [currentPath]);
 
   // Periodic poll for background tasks & trash count
@@ -174,25 +199,58 @@ export default function FileManager({ token, onShowToast }) {
   };
 
   // Selection handlers
-  const handleToggleSelect = (path, { shiftKey, ctrlKey, index } = {}) => {
-    setSelectedPaths((prev) => {
-      const next = new Set(prev);
+  const handleItemClick = (e, item) => {
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault();
+      e.stopPropagation();
+      setSelectedItems((prev) =>
+        prev.includes(item.name)
+          ? prev.filter((name) => name !== item.name)
+          : [...prev, item.name]
+      );
+    } else {
+      handleOpenItem(item);
+    }
+  };
+
+  const handleTouchStart = (item) => {
+    holdTimeout.current = setTimeout(() => {
+      if (navigator.vibrate) navigator.vibrate(50); // Haptic feedback
+      setSelectedItems((prev) =>
+        prev.includes(item.name)
+          ? prev.filter((name) => name !== item.name)
+          : [...prev, item.name]
+      );
+    }, 500); // 500ms long hold
+  };
+
+  const handleTouchClear = () => {
+    if (holdTimeout.current) clearTimeout(holdTimeout.current);
+  };
+
+  const handleToggleSelect = (itemOrPath, { shiftKey, ctrlKey, index } = {}) => {
+    const it =
+      typeof itemOrPath === 'object' && itemOrPath !== null
+        ? itemOrPath
+        : items.find((i) => i.path === itemOrPath || i.name === itemOrPath);
+    const itemName = it ? it.name : itemOrPath;
+
+    setSelectedItems((prev) => {
       if (ctrlKey) {
-        if (next.has(path)) next.delete(path);
-        else next.add(path);
+        return prev.includes(itemName)
+          ? prev.filter((name) => name !== itemName)
+          : [...prev, itemName];
       } else {
-        next.clear();
-        next.add(path);
+        return [itemName];
       }
-      return next;
     });
   };
 
   const handleSelectAll = (selectAll) => {
     if (selectAll) {
-      setSelectedPaths(new Set(items.map((i) => i.path)));
+      setSelectedItems(items.map((i) => i.name));
     } else {
-      setSelectedPaths(new Set());
+      setSelectedItems([]);
     }
   };
 
@@ -652,7 +710,7 @@ export default function FileManager({ token, onShowToast }) {
         e.preventDefault();
         setIsKeyboardGuideOpen(true);
       } else if (e.key === 'Escape') {
-        setSelectedPaths(new Set());
+        setSelectedItems([]);
         setContextMenu(null);
         setIsKeyboardGuideOpen(false);
       }
@@ -661,6 +719,7 @@ export default function FileManager({ token, onShowToast }) {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [
+    selectedItems,
     selectedPaths,
     clipboard,
     items,
@@ -750,10 +809,15 @@ export default function FileManager({ token, onShowToast }) {
         <FileTable
           items={items}
           viewMode={viewMode}
+          selectedItems={selectedItems}
+          setSelectedItems={setSelectedItems}
           selectedPaths={selectedPaths}
           onToggleSelect={handleToggleSelect}
           onSelectAll={handleSelectAll}
           onOpenItem={handleOpenItem}
+          onItemClick={handleItemClick}
+          onTouchStart={handleTouchStart}
+          onTouchClear={handleTouchClear}
           onContextMenu={handleContextMenu}
           sortBy={sortBy}
           sortOrder={sortOrder}

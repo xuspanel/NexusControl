@@ -24,58 +24,97 @@ function formatDate(isoOrTs) {
 export default function FileTable({
   items = [],
   viewMode = 'list',
+  selectedItems = [],
+  setSelectedItems,
   selectedPaths = new Set(),
   onToggleSelect,
   onSelectAll,
   onOpenItem,
+  onItemClick,
+  onTouchStart,
+  onTouchClear,
   onContextMenu,
   sortBy,
   sortOrder,
   onSortChange,
   clipboard
 }) {
-  const isAllSelected = items.length > 0 && items.every((it) => selectedPaths.has(it.path));
-  const longPressTimerRef = useRef(null);
+  const isAllSelected =
+    items.length > 0 &&
+    items.every((it) => selectedItems.includes(it.name) || selectedPaths.has(it.path));
 
-  const handleRowClick = (e, item, index) => {
-    e.stopPropagation();
-    onToggleSelect(item.path, {
-      shiftKey: e.shiftKey,
-      ctrlKey: e.ctrlKey || e.metaKey,
-      index
-    });
+  const holdTimeout = useRef(null);
+  const isLongPressTriggered = useRef(false);
+
+  const handleTouchStart = (item) => {
+    isLongPressTriggered.current = false;
+    if (holdTimeout.current) clearTimeout(holdTimeout.current);
+    holdTimeout.current = setTimeout(() => {
+      isLongPressTriggered.current = true;
+      if (typeof window !== 'undefined' && window.navigator && window.navigator.vibrate) {
+        window.navigator.vibrate(50); // Haptic feedback
+      }
+      if (setSelectedItems) {
+        setSelectedItems((prev) =>
+          prev.includes(item.name)
+            ? prev.filter((name) => name !== item.name)
+            : [...prev, item.name]
+        );
+      } else if (onToggleSelect) {
+        onToggleSelect(item.path, { ctrlKey: true });
+      }
+    }, 500); // 500ms long hold
   };
 
-  const handleTouchStart = (e, item) => {
-    if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
-    longPressTimerRef.current = setTimeout(() => {
-      if (window.navigator?.vibrate) window.navigator.vibrate(20);
-      const touch = e.touches[0];
-      onContextMenu(
-        {
-          preventDefault: () => {},
-          stopPropagation: () => {},
-          clientX: touch?.clientX || window.innerWidth / 2,
-          clientY: touch?.clientY || window.innerHeight / 2
-        },
-        item
-      );
-    }, 500);
+  const handleTouchClear = () => {
+    if (holdTimeout.current) {
+      clearTimeout(holdTimeout.current);
+      holdTimeout.current = null;
+    }
   };
 
-  const handleTouchEnd = () => {
-    if (longPressTimerRef.current) {
-      clearTimeout(longPressTimerRef.current);
-      longPressTimerRef.current = null;
+  const handleItemClick = (e, item) => {
+    if (isLongPressTriggered.current) {
+      e.preventDefault();
+      e.stopPropagation();
+      isLongPressTriggered.current = false;
+      return;
+    }
+
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (setSelectedItems) {
+        setSelectedItems((prev) =>
+          prev.includes(item.name)
+            ? prev.filter((name) => name !== item.name)
+            : [...prev, item.name]
+        );
+      } else if (onToggleSelect) {
+        onToggleSelect(item.path, { ctrlKey: true });
+      }
+    } else {
+      if (selectedItems.length > 0) {
+        e.stopPropagation();
+        if (setSelectedItems) {
+          setSelectedItems([item.name]);
+        } else if (onToggleSelect) {
+          onToggleSelect(item.path, { ctrlKey: false });
+        }
+      } else {
+        if (onToggleSelect) {
+          onToggleSelect(item.path, { ctrlKey: false });
+        }
+      }
     }
   };
 
   const renderSortArrow = (col) => {
     if (sortBy !== col) return null;
     return sortOrder === 'asc' ? (
-      <ChevronUp className="w-3.5 h-3.5 inline ml-1 text-emerald-400" />
+      <ChevronUp className="w-3.5 h-3.5 inline ml-1 text-blue-500" />
     ) : (
-      <ChevronDown className="w-3.5 h-3.5 inline ml-1 text-emerald-400" />
+      <ChevronDown className="w-3.5 h-3.5 inline ml-1 text-blue-500" />
     );
   };
 
@@ -101,7 +140,7 @@ export default function FileTable({
                       checked={isAllSelected}
                       onChange={(e) => onSelectAll(e.target.checked)}
                       onClick={(e) => e.stopPropagation()}
-                      className="rounded border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-emerald-600 dark:text-emerald-500 focus:ring-0 cursor-pointer"
+                      className="rounded border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-blue-600 dark:text-blue-500 focus:ring-0 cursor-pointer"
                     />
                   </th>
                   <th
@@ -134,25 +173,28 @@ export default function FileTable({
               </thead>
               <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800/40 font-mono">
                 {items.map((item, idx) => {
-                  const isSelected = selectedPaths.has(item.path);
+                  const isSelected = selectedItems.includes(item.name) || selectedPaths.has(item.path);
                   const isCut = clipboard?.mode === 'cut' && clipboard.items.includes(item.path);
 
                   return (
                     <tr
                       key={item.path}
-                      onClick={(e) => handleRowClick(e, item, idx)}
+                      onClick={(e) => handleItemClick(e, item)}
                       onDoubleClick={(e) => {
                         e.stopPropagation();
                         onOpenItem(item);
                       }}
+                      onTouchStart={() => handleTouchStart(item)}
+                      onTouchEnd={handleTouchClear}
+                      onTouchMove={handleTouchClear}
                       onContextMenu={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
                         onContextMenu(e, item);
                       }}
                       className={`cursor-pointer transition-colors group ${
-                        isSelected
-                          ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+                        selectedItems.includes(item.name) || isSelected
+                          ? 'bg-blue-500/15 dark:bg-blue-600/20 text-blue-900 dark:text-blue-100 font-medium'
                           : 'hover:bg-zinc-100 dark:hover:bg-zinc-900/60 text-zinc-800 dark:text-zinc-300'
                       } ${isCut ? 'opacity-50' : ''}`}
                     >
@@ -162,9 +204,17 @@ export default function FileTable({
                           checked={isSelected}
                           onChange={(e) => {
                             e.stopPropagation();
-                            onToggleSelect(item.path, { ctrlKey: true });
+                            if (setSelectedItems) {
+                              setSelectedItems((prev) =>
+                                prev.includes(item.name)
+                                  ? prev.filter((name) => name !== item.name)
+                                  : [...prev, item.name]
+                              );
+                            } else if (onToggleSelect) {
+                              onToggleSelect(item.path, { ctrlKey: true });
+                            }
                           }}
-                          className="rounded border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-emerald-600 dark:text-emerald-500 focus:ring-0 cursor-pointer"
+                          className="rounded border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-blue-600 dark:text-blue-500 focus:ring-0 cursor-pointer"
                         />
                       </td>
                       <td className="px-3 py-2.5">
@@ -223,7 +273,7 @@ export default function FileTable({
                   type="checkbox"
                   checked={isAllSelected}
                   onChange={(e) => onSelectAll(e.target.checked)}
-                  className="rounded border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-emerald-600 dark:text-emerald-500 focus:ring-0"
+                  className="rounded border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-blue-600 dark:text-blue-500 focus:ring-0"
                 />
                 <span className="text-[11px] uppercase tracking-wider">Select All</span>
               </label>
@@ -238,35 +288,43 @@ export default function FileTable({
             </div>
 
             {items.map((item, idx) => {
-              const isSelected = selectedPaths.has(item.path);
+              const isSelected = selectedItems.includes(item.name) || selectedPaths.has(item.path);
               const isCut = clipboard?.mode === 'cut' && clipboard.items.includes(item.path);
 
               return (
                 <div
                   key={item.path}
-                  onClick={(e) => handleRowClick(e, item, idx)}
-                  onTouchStart={(e) => handleTouchStart(e, item)}
-                  onTouchEnd={handleTouchEnd}
-                  onTouchMove={handleTouchEnd}
-                  className={`flex items-center justify-between p-3 min-h-[52px] transition-colors border-l-2 active:bg-zinc-200 dark:active:bg-zinc-800/80 ${
-                    isSelected
-                      ? 'bg-emerald-500/10 border-emerald-600 dark:border-emerald-500 text-emerald-700 dark:text-emerald-300'
+                  onClick={(e) => handleItemClick(e, item)}
+                  onTouchStart={() => handleTouchStart(item)}
+                  onTouchEnd={handleTouchClear}
+                  onTouchMove={handleTouchClear}
+                  className={`flex items-center justify-between p-3 min-h-[52px] transition-colors border-l-4 active:bg-zinc-200 dark:active:bg-zinc-800/80 ${
+                    selectedItems.includes(item.name) || isSelected
+                      ? 'bg-blue-500/15 dark:bg-blue-600/20 border-blue-600 dark:border-blue-500 text-blue-900 dark:text-blue-100 font-medium'
                       : 'border-transparent text-zinc-800 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-900/50'
                   } ${isCut ? 'opacity-50' : ''}`}
                 >
                   {/* Left: Checkbox (Min 44x44px target) */}
                   <div
-                    className="p-2 -ml-2 mr-1 min-w-[44px] min-h-[44px] flex items-center justify-center shrink-0"
+                    className="p-2 -ml-2 mr-1 min-w-[44px] min-h-[44px] flex items-center justify-center shrink-0 cursor-pointer"
                     onClick={(e) => {
                       e.stopPropagation();
-                      onToggleSelect(item.path, { ctrlKey: true });
+                      if (setSelectedItems) {
+                        setSelectedItems((prev) =>
+                          prev.includes(item.name)
+                            ? prev.filter((name) => name !== item.name)
+                            : [...prev, item.name]
+                        );
+                      } else if (onToggleSelect) {
+                        onToggleSelect(item.path, { ctrlKey: true });
+                      }
                     }}
                   >
                     <input
                       type="checkbox"
                       checked={isSelected}
                       onChange={() => {}}
-                      className="rounded border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-emerald-600 dark:text-emerald-500 focus:ring-0 cursor-pointer w-4 h-4"
+                      className="rounded border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-blue-600 dark:text-blue-500 focus:ring-0 cursor-pointer w-4 h-4"
                     />
                   </div>
 
@@ -274,8 +332,12 @@ export default function FileTable({
                   <div
                     className="flex items-center gap-3 flex-1 min-w-0 pr-2 cursor-pointer"
                     onClick={(e) => {
-                      e.stopPropagation();
-                      onOpenItem(item);
+                      if (selectedItems.length > 0) {
+                        handleItemClick(e, item);
+                      } else {
+                        e.stopPropagation();
+                        onOpenItem(item);
+                      }
                     }}
                   >
                     <div className="shrink-0 p-1.5 rounded bg-zinc-200/70 dark:bg-zinc-900/60 border border-zinc-300 dark:border-zinc-800/60">
@@ -316,28 +378,28 @@ export default function FileTable({
         /* Grid View */
         <div className="p-3 sm:p-4 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-2.5 sm:gap-3">
           {items.map((item, idx) => {
-            const isSelected = selectedPaths.has(item.path);
+            const isSelected = selectedItems.includes(item.name) || selectedPaths.has(item.path);
             const isCut = clipboard?.mode === 'cut' && clipboard.items.includes(item.path);
 
             return (
               <div
                 key={item.path}
-                onClick={(e) => handleRowClick(e, item, idx)}
+                onClick={(e) => handleItemClick(e, item)}
                 onDoubleClick={(e) => {
                   e.stopPropagation();
                   onOpenItem(item);
                 }}
-                onTouchStart={(e) => handleTouchStart(e, item)}
-                onTouchEnd={handleTouchEnd}
-                onTouchMove={handleTouchEnd}
+                onTouchStart={() => handleTouchStart(item)}
+                onTouchEnd={handleTouchClear}
+                onTouchMove={handleTouchClear}
                 onContextMenu={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
                   onContextMenu(e, item);
                 }}
                 className={`relative p-3 rounded-xl border flex flex-col items-center text-center cursor-pointer transition-all min-h-[110px] justify-between ${
-                  isSelected
-                    ? 'bg-emerald-500/10 border-emerald-600/40 dark:border-emerald-500/40 text-emerald-700 dark:text-emerald-300 ring-1 ring-emerald-500/30'
+                  selectedItems.includes(item.name) || isSelected
+                    ? 'bg-blue-500/15 dark:bg-blue-600/20 border-blue-600 dark:border-blue-500 text-blue-900 dark:text-blue-100 ring-2 ring-blue-500/40 shadow-sm font-medium'
                     : 'bg-white dark:bg-zinc-900/40 border-zinc-200 dark:border-zinc-800/60 hover:bg-zinc-100 dark:hover:bg-zinc-800/60 hover:border-zinc-300 dark:hover:border-zinc-700 text-zinc-800 dark:text-zinc-300'
                 } ${isCut ? 'opacity-50' : ''}`}
               >
@@ -357,8 +419,12 @@ export default function FileTable({
                 <div
                   className="w-full flex flex-col items-center flex-1 justify-center"
                   onClick={(e) => {
-                    e.stopPropagation();
-                    onOpenItem(item);
+                    if (selectedItems.length > 0) {
+                      handleItemClick(e, item);
+                    } else {
+                      e.stopPropagation();
+                      onOpenItem(item);
+                    }
                   }}
                 >
                   <div className="p-2.5 rounded-lg bg-zinc-100 dark:bg-zinc-950/60 mb-2">

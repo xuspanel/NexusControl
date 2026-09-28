@@ -258,6 +258,12 @@ journalctl -u nexuscontrol -f
 
 ---
 
+## ⛑️ Troubleshooting & Known Issues
+Encountering a 502 Bad Gateway or an update timeout? We have documented all real-world deployment blockers and their exact terminal fixes.
+👉 [**Read the Troubleshooting Guide**](./TROUBLESHOOTING.md)
+
+---
+
 ## 7. License
 
 NexusControl is open-source software licensed under the [MIT License](LICENSE).

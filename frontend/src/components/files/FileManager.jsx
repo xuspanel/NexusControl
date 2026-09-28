@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Plus, FolderPlus, FilePlus, UploadCloud } from 'lucide-react';
 import FileSidebar from './FileSidebar';
 import FileTopBar from './FileTopBar';
@@ -198,20 +198,29 @@ export default function FileManager({ token, onShowToast }) {
     navigateTo(parent);
   };
 
-  // Selection handlers
-  const handleItemClick = (e, item) => {
-    if (e.ctrlKey || e.metaKey) {
-      e.preventDefault();
-      e.stopPropagation();
-      setSelectedItems((prev) =>
-        prev.includes(item.name)
-          ? prev.filter((name) => name !== item.name)
-          : [...prev, item.name]
-      );
+  // Row Click & Double-Click handlers
+  const handleRowClick = (e, item) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (selectedItems.length > 0) {
+      // Mobile smart-toggle or normal Ctrl-click
+      handleToggleSelect(item.name, { ctrlKey: true });
+    } else if (e.ctrlKey || e.metaKey) {
+      handleToggleSelect(item.name, { ctrlKey: true });
     } else {
-      handleOpenItem(item);
+      // Desktop single click (selects ONLY this item)
+      setSelectedItems([item.name]);
     }
   };
+
+  const handleRowDoubleClick = (e, item) => {
+    e.preventDefault();
+    e.stopPropagation();
+    handleOpenItem(item);
+  };
+
+  const handleItemClick = handleRowClick;
 
   const handleTouchStart = (item) => {
     holdTimeout.current = setTimeout(() => {
@@ -815,6 +824,8 @@ export default function FileManager({ token, onShowToast }) {
           onToggleSelect={handleToggleSelect}
           onSelectAll={handleSelectAll}
           onOpenItem={handleOpenItem}
+          onRowClick={handleRowClick}
+          onRowDoubleClick={handleRowDoubleClick}
           onItemClick={handleItemClick}
           onTouchStart={handleTouchStart}
           onTouchClear={handleTouchClear}

@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useRef, useMemo } from 'react';
 import {
   ArrowRight,
   Shield,
@@ -30,6 +30,8 @@ export default function FileTable({
   onToggleSelect,
   onSelectAll,
   onOpenItem,
+  onRowClick,
+  onRowDoubleClick,
   onItemClick,
   onTouchStart,
   onTouchClear,
@@ -45,24 +47,30 @@ export default function FileTable({
 
   const holdTimeout = useRef(null);
   const isLongPressTriggered = useRef(false);
+  const isTouchInteraction = useRef(false);
+
+  const handleToggleSelect = (name) => {
+    if (setSelectedItems) {
+      setSelectedItems((prev) =>
+        prev.includes(name)
+          ? prev.filter((n) => n !== name)
+          : [...prev, name]
+      );
+    } else if (onToggleSelect) {
+      onToggleSelect(name, { ctrlKey: true });
+    }
+  };
 
   const handleTouchStart = (item) => {
     isLongPressTriggered.current = false;
+    isTouchInteraction.current = true;
     if (holdTimeout.current) clearTimeout(holdTimeout.current);
     holdTimeout.current = setTimeout(() => {
       isLongPressTriggered.current = true;
       if (typeof window !== 'undefined' && window.navigator && window.navigator.vibrate) {
         window.navigator.vibrate(50); // Haptic feedback
       }
-      if (setSelectedItems) {
-        setSelectedItems((prev) =>
-          prev.includes(item.name)
-            ? prev.filter((name) => name !== item.name)
-            : [...prev, item.name]
-        );
-      } else if (onToggleSelect) {
-        onToggleSelect(item.path, { ctrlKey: true });
-      }
+      handleToggleSelect(item.name);
     }, 500); // 500ms long hold
   };
 
@@ -73,41 +81,45 @@ export default function FileTable({
     }
   };
 
-  const handleItemClick = (e, item) => {
+  const handleRowClick = (e, item, isMobileView = false) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    // Prevent synthetic ghost click after long press
     if (isLongPressTriggered.current) {
-      e.preventDefault();
-      e.stopPropagation();
       isLongPressTriggered.current = false;
+      isTouchInteraction.current = false;
       return;
     }
 
-    if (e.ctrlKey || e.metaKey) {
-      e.preventDefault();
-      e.stopPropagation();
-      if (setSelectedItems) {
-        setSelectedItems((prev) =>
-          prev.includes(item.name)
-            ? prev.filter((name) => name !== item.name)
-            : [...prev, item.name]
-        );
-      } else if (onToggleSelect) {
-        onToggleSelect(item.path, { ctrlKey: true });
-      }
+    const wasTouch = isTouchInteraction.current;
+    isTouchInteraction.current = false;
+
+    if (selectedItems.length > 0) {
+      // Mobile smart-toggle or normal Ctrl-click
+      handleToggleSelect(item.name);
+    } else if (e.ctrlKey || e.metaKey) {
+      handleToggleSelect(item.name);
+    } else if (isMobileView || wasTouch) {
+      // Mobile tap in normal mode: open file/folder
+      onOpenItem(item);
     } else {
-      if (selectedItems.length > 0) {
-        e.stopPropagation();
-        if (setSelectedItems) {
-          setSelectedItems([item.name]);
-        } else if (onToggleSelect) {
-          onToggleSelect(item.path, { ctrlKey: false });
-        }
-      } else {
-        if (onToggleSelect) {
-          onToggleSelect(item.path, { ctrlKey: false });
-        }
+      // Desktop single click (selects ONLY this item)
+      if (setSelectedItems) {
+        setSelectedItems([item.name]);
+      } else if (onToggleSelect) {
+        onToggleSelect(item.path, { ctrlKey: false });
       }
     }
   };
+
+  const handleRowDoubleClick = (e, item) => {
+    e.preventDefault();
+    e.stopPropagation();
+    onOpenItem(item);
+  };
+
+  const handleItemClick = handleRowClick;
 
   const renderSortArrow = (col) => {
     if (sortBy !== col) return null;
@@ -179,11 +191,8 @@ export default function FileTable({
                   return (
                     <tr
                       key={item.path}
-                      onClick={(e) => handleItemClick(e, item)}
-                      onDoubleClick={(e) => {
-                        e.stopPropagation();
-                        onOpenItem(item);
-                      }}
+                      onClick={(e) => handleRowClick(e, item, false)}
+                      onDoubleClick={(e) => handleRowDoubleClick(e, item)}
                       onTouchStart={() => handleTouchStart(item)}
                       onTouchEnd={handleTouchClear}
                       onTouchMove={handleTouchClear}
@@ -294,11 +303,12 @@ export default function FileTable({
               return (
                 <div
                   key={item.path}
-                  onClick={(e) => handleItemClick(e, item)}
+                  onClick={(e) => handleRowClick(e, item, true)}
+                  onDoubleClick={(e) => handleRowDoubleClick(e, item)}
                   onTouchStart={() => handleTouchStart(item)}
                   onTouchEnd={handleTouchClear}
                   onTouchMove={handleTouchClear}
-                  className={`flex items-center justify-between p-3 min-h-[52px] transition-colors border-l-4 active:bg-zinc-200 dark:active:bg-zinc-800/80 ${
+                  className={`flex items-center justify-between p-3 min-h-[52px] transition-colors border-l-4 active:bg-zinc-200 dark:active:bg-zinc-800/80 cursor-pointer ${
                     selectedItems.includes(item.name) || isSelected
                       ? 'bg-blue-500/15 dark:bg-blue-600/20 border-blue-600 dark:border-blue-500 text-blue-900 dark:text-blue-100 font-medium'
                       : 'border-transparent text-zinc-800 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-900/50'
@@ -309,15 +319,7 @@ export default function FileTable({
                     className="p-2 -ml-2 mr-1 min-w-[44px] min-h-[44px] flex items-center justify-center shrink-0 cursor-pointer"
                     onClick={(e) => {
                       e.stopPropagation();
-                      if (setSelectedItems) {
-                        setSelectedItems((prev) =>
-                          prev.includes(item.name)
-                            ? prev.filter((name) => name !== item.name)
-                            : [...prev, item.name]
-                        );
-                      } else if (onToggleSelect) {
-                        onToggleSelect(item.path, { ctrlKey: true });
-                      }
+                      handleToggleSelect(item.name);
                     }}
                   >
                     <input
@@ -329,17 +331,7 @@ export default function FileTable({
                   </div>
 
                   {/* Center: File info with icon and stacked details */}
-                  <div
-                    className="flex items-center gap-3 flex-1 min-w-0 pr-2 cursor-pointer"
-                    onClick={(e) => {
-                      if (selectedItems.length > 0) {
-                        handleItemClick(e, item);
-                      } else {
-                        e.stopPropagation();
-                        onOpenItem(item);
-                      }
-                    }}
-                  >
+                  <div className="flex items-center gap-3 flex-1 min-w-0 pr-2 pointer-events-none">
                     <div className="shrink-0 p-1.5 rounded bg-zinc-200/70 dark:bg-zinc-900/60 border border-zinc-300 dark:border-zinc-800/60">
                       {getFileIcon(item, item.isDirectory, 'w-5 h-5')}
                     </div>
@@ -384,11 +376,8 @@ export default function FileTable({
             return (
               <div
                 key={item.path}
-                onClick={(e) => handleItemClick(e, item)}
-                onDoubleClick={(e) => {
-                  e.stopPropagation();
-                  onOpenItem(item);
-                }}
+                onClick={(e) => handleRowClick(e, item, false)}
+                onDoubleClick={(e) => handleRowDoubleClick(e, item)}
                 onTouchStart={() => handleTouchStart(item)}
                 onTouchEnd={handleTouchClear}
                 onTouchMove={handleTouchClear}
@@ -416,17 +405,7 @@ export default function FileTable({
                   <MoreVertical className="w-3.5 h-3.5" />
                 </button>
 
-                <div
-                  className="w-full flex flex-col items-center flex-1 justify-center"
-                  onClick={(e) => {
-                    if (selectedItems.length > 0) {
-                      handleItemClick(e, item);
-                    } else {
-                      e.stopPropagation();
-                      onOpenItem(item);
-                    }
-                  }}
-                >
+                <div className="w-full flex flex-col items-center flex-1 justify-center pointer-events-none">
                   <div className="p-2.5 rounded-lg bg-zinc-100 dark:bg-zinc-950/60 mb-2">
                     {getFileIcon(item, item.isDirectory, 'w-8 h-8')}
                   </div>

@@ -5,6 +5,11 @@ All notable changes to NexusControl will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.6.2] - 2026-09-28
+
+### Fixed
+- **Fixed:** Resolved useMemo crash and updated File Manager to use OS-native Single-Click for selection and Double-Click for opening.
+
 ## [v1.6.1] - 2026-09-28
 
 ### Fixed

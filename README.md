@@ -145,6 +145,13 @@ NexusControl includes a full-fledged, zero-bloat alternative to pgAdmin and PhpM
 - **Global Cross-Table Search:** High-speed text scanner across all `varchar` and `text` columns across all tables in a selected database catalog with grouped match cards.
 - **Zero-Memory `pg_dump` Streaming:** Directly pipes `pg_dump` standard output into Express HTTP responses with `Content-Disposition: attachment` for Full, Schema-only, and Data-only downloads without buffer exhaustion.
 
+### 🚀 Process & Application Manager (PaaS)
+NexusControl turns your Linux VPS into a zero-dependency PaaS deployment engine leveraging native `systemd`:
+- **Zero-Dependency Process Supervision:** Generates and isolates native systemd units (`nc-app-[name].service`) for Node.js, Python, Go, and compiled microservices without PM2 or external supervisor overhead.
+- **Automated Restarts & Failure Recovery:** Configures `Restart=always` with 5-second backoff and systemd cgroup telemetry tracking.
+- **Environment Isolation:** Stores and manages per-app environment variables in `/opt/NexusControl/apps/[name]/.env` with automated service reload on edit.
+- **Live Chunked Journalctl Streaming:** Connects to native `journald` and streams real-time console logs directly to the web dashboard via HTTP chunked transfer.
+
 ---
 
 ## 3. Deployment & Lifecycle Scripts

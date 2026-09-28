@@ -20,6 +20,7 @@ import {
   Database,
   Zap,
   Clock,
+  Layers,
   X
 } from 'lucide-react';
 import { getNavItemsForRole } from '../../config/navigation';
@@ -200,6 +201,20 @@ export default function CommandPalette({
         roles: ['superadmin', 'operator', 'viewer'],
         action: () => {
           onSelectTab('cron');
+        }
+      },
+      {
+        id: 'manage_process',
+        module: 'process',
+        type: 'action',
+        category: 'Quick Actions',
+        label: 'Manage Applications & PaaS Processes',
+        description: 'Deploy microservices, supervise systemd units, edit env vars & stream live logs',
+        icon: Layers,
+        shortcut: 'Alt + P',
+        roles: ['superadmin', 'operator', 'viewer'],
+        action: () => {
+          onSelectTab('process');
         }
       },
       {

@@ -36,6 +36,7 @@ const osUpdates = require('./osUpdates');
 const wizardEngine = require('./wizardEngine');
 const postgresEngine = require('./postgresEngine');
 const postgresRouter = require('./postgresRouter');
+const redisRouter = require('./redisRouter');
 
 // Ensure system storage directories exist on boot
 trash.initTrash().then(() => console.log('[BOOT] Trash directory initialized at /opt/NexusControl/.trash')).catch(err => console.error('[BOOT ERROR] Trash init:', err));
@@ -724,6 +725,9 @@ app.use('/api/alerts', auth.authMiddleware, auth.requireRole(['superadmin'], 'ov
 
 // Protected PostgreSQL Database Manager Endpoints
 app.use('/api/postgres', auth.authMiddleware, postgresRouter);
+
+// Protected Redis Key-Value Cache Engine Endpoints
+app.use('/api/redis', auth.authMiddleware, redisRouter);
 
 if (process.env.NODE_ENV !== 'test') {
   dockerEngine.startBackgroundSampling(3500);

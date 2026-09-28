@@ -18,6 +18,7 @@ import {
   Archive,
   Bell,
   Database,
+  Zap,
   X
 } from 'lucide-react';
 import { getNavItemsForRole } from '../../config/navigation';
@@ -170,6 +171,20 @@ export default function CommandPalette({
         roles: ['superadmin', 'operator', 'viewer'],
         action: () => {
           onSelectTab('database');
+        }
+      },
+      {
+        id: 'manage_redis',
+        module: 'redis',
+        type: 'action',
+        category: 'Quick Actions',
+        label: 'Manage Redis Cache & Keyspace',
+        description: 'Inspect keyspace, monitor hit rates & execute raw Redis commands',
+        icon: Zap,
+        shortcut: 'Alt + R',
+        roles: ['superadmin', 'operator', 'viewer'],
+        action: () => {
+          onSelectTab('redis');
         }
       },
       {

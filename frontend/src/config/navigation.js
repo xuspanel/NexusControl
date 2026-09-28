@@ -11,7 +11,8 @@ import {
   Bell,
   Sparkles,
   Wand2,
-  Database
+  Database,
+  Zap
 } from 'lucide-react';
 
 /**
@@ -148,6 +149,16 @@ export const NAV_ITEMS = [
     shortcut: 'd',
     primaryMobile: false,
     roles: ['superadmin', 'operator', 'viewer']
+  },
+  {
+    id: 'redis',
+    label: 'Redis Cache',
+    description: 'In-memory key-value cache, keyspace inspector, TTL & raw CLI',
+    icon: 'Zap',
+    iconComponent: Zap,
+    shortcut: 'r',
+    primaryMobile: false,
+    roles: ['superadmin', 'operator', 'viewer']
   }
 ];
 
@@ -157,8 +168,8 @@ export const NAV_SHORTCUTS = NAV_ITEMS.reduce((acc, item) => {
 }, {});
 
 export function getNavItem(id) {
-  // Support aliases: 'telemetry' -> 'overview', 'domains' -> 'vhosts', 'vpn' -> 'network', 'wireguard' -> 'network', 'settings' -> 'updates', 'optimizer' -> 'wizard', 'postgres' -> 'database'
-  const normalized = id === 'telemetry' ? 'overview' : id === 'domains' ? 'vhosts' : (id === 'vpn' || id === 'wireguard') ? 'network' : id === 'settings' ? 'updates' : id === 'optimizer' ? 'wizard' : id === 'postgres' ? 'database' : id;
+  // Support aliases: 'telemetry' -> 'overview', 'domains' -> 'vhosts', 'vpn' -> 'network', 'wireguard' -> 'network', 'settings' -> 'updates', 'optimizer' -> 'wizard', 'postgres' -> 'database', 'cache' -> 'redis'
+  const normalized = id === 'telemetry' ? 'overview' : id === 'domains' ? 'vhosts' : (id === 'vpn' || id === 'wireguard') ? 'network' : id === 'settings' ? 'updates' : id === 'optimizer' ? 'wizard' : id === 'postgres' ? 'database' : id === 'cache' ? 'redis' : id;
   return NAV_ITEMS.find(item => item.id === normalized) || NAV_ITEMS[0];
 }
 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Plus, FolderPlus, FilePlus, UploadCloud } from 'lucide-react';
+import { Plus, FolderPlus, FilePlus, UploadCloud, FolderInput } from 'lucide-react';
 import FileSidebar from './FileSidebar';
 import FileTopBar from './FileTopBar';
 import FileTable from './FileTable';
@@ -15,6 +15,7 @@ import UploadModal from './UploadModal';
 import TaskPopover from './TaskPopover';
 import TrashModal from './TrashModal';
 import KeyboardShortcutsModal from './KeyboardShortcutsModal';
+import CopyToModal from './CopyToModal';
 import { isImageFile, isPdfFile, isArchiveFile } from './fileIcons';
 
 export default function FileManager({ token, onShowToast }) {
@@ -81,6 +82,8 @@ export default function FileManager({ token, onShowToast }) {
   const [isTrashOpen, setIsTrashOpen] = useState(false);
   const [isTasksOpen, setIsTasksOpen] = useState(false);
   const [isKeyboardGuideOpen, setIsKeyboardGuideOpen] = useState(false);
+  const [isCopyToOpen, setIsCopyToOpen] = useState(false);
+  const [copyToTarget, setCopyToTarget] = useState([]);
   const [activeTasks, setActiveTasks] = useState([]);
   const [trashCount, setTrashCount] = useState(0);
 
@@ -440,6 +443,58 @@ export default function FileManager({ token, onShowToast }) {
     }
   };
 
+  // Copy To Dialog Handlers
+  const handleOpenCopyTo = (target = null) => {
+    let itemsToCopy = [];
+    if (Array.isArray(target)) {
+      itemsToCopy = target;
+    } else if (target && typeof target === 'object' && target.path) {
+      itemsToCopy = [target.path];
+    } else if (selectedPaths.size > 0) {
+      itemsToCopy = Array.from(selectedPaths);
+    }
+    if (itemsToCopy.length === 0) return;
+    setCopyToTarget(itemsToCopy);
+    setIsCopyToOpen(true);
+  };
+
+  const handleConfirmCopyTo = async (destinationPath) => {
+    if (!copyToTarget || copyToTarget.length === 0) return;
+
+    const targetDir = destinationPath || currentPath;
+    const res = await fetch('/api/files/copy', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        sources: copyToTarget,
+        destinationDir: targetDir
+      })
+    });
+
+    const data = await res.json();
+
+    if (res.status === 409) {
+      // Conflict detected! Open ConflictModal and close CopyToModal
+      setIsCopyToOpen(false);
+      setConflictState({
+        conflicts: data.conflicts,
+        actionType: 'copy',
+        sources: copyToTarget,
+        destDir: targetDir
+      });
+      return;
+    }
+
+    if (!res.ok) throw new Error(data.error || 'Copy operation failed');
+
+    setIsCopyToOpen(false);
+    onShowToast?.(`Copied ${copyToTarget.length} item${copyToTarget.length > 1 ? 's' : ''} to ${targetDir}`, 'success');
+    fetchDirectory(currentPath);
+  };
+
   // Delete to Trash (POST /api/files/trash)
   const handleTrash = async (target = null) => {
     let paths = [];
@@ -771,6 +826,8 @@ export default function FileManager({ token, onShowToast }) {
         onToggleContentSearch={() => setIsContentSearch(!isContentSearch)}
         isLoading={isLoading}
         onToggleSidebar={() => setIsMobileSidebarOpen((v) => !v)}
+        selectedCount={selectedItems.length}
+        onCopyTo={() => handleOpenCopyTo()}
       />
 
       {/* Main Workspace Body */}
@@ -856,6 +913,22 @@ export default function FileManager({ token, onShowToast }) {
           {/* Speed Dial Menu Items */}
           {isFabOpen && (
             <div className="fixed bottom-24 right-6 z-50 flex flex-col items-end gap-3 animate-in slide-in-from-bottom-4 duration-150 select-none">
+              {selectedItems.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsFabOpen(false);
+                    handleOpenCopyTo();
+                  }}
+                  className="flex items-center gap-3 px-4 py-3 bg-blue-600 text-white rounded-full shadow-2xl text-xs font-medium active:scale-95 transition-transform min-h-[44px]"
+                >
+                  <span className="font-semibold text-white">Copy To ({selectedItems.length})</span>
+                  <div className="w-8 h-8 rounded-full bg-white/20 text-white flex items-center justify-center">
+                    <FolderInput className="w-4 h-4" />
+                  </div>
+                </button>
+              )}
+
               <button
                 type="button"
                 onClick={() => {
@@ -941,6 +1014,7 @@ export default function FileManager({ token, onShowToast }) {
           onViewHex={(it) => setActiveHexFile(it.path)}
           onDownload={handleDownload}
           onCopy={(target) => handleCopy(target)}
+          onCopyTo={(target) => handleOpenCopyTo(target)}
           onCut={(target) => handleCut(target)}
           onPaste={(destFolder) => handlePaste(destFolder)}
           onDuplicate={handleDuplicate}
@@ -1016,6 +1090,18 @@ export default function FileManager({ token, onShowToast }) {
           actionType={conflictState.actionType}
           onResolve={handleResolveConflict}
           onClose={() => setConflictState(null)}
+        />
+      )}
+
+      {/* Copy To Destination Modal */}
+      {isCopyToOpen && (
+        <CopyToModal
+          isOpen={isCopyToOpen}
+          onClose={() => setIsCopyToOpen(false)}
+          itemsToCopy={copyToTarget || []}
+          currentPath={currentPath}
+          token={token}
+          onConfirm={handleConfirmCopyTo}
         />
       )}
 

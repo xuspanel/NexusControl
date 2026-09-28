@@ -16,6 +16,7 @@ import {
   X,
   FileSearch,
   FolderTree,
+  FolderInput,
   Keyboard
 } from 'lucide-react';
 
@@ -43,7 +44,9 @@ export default function FileTopBar({
   isContentSearch,
   onToggleContentSearch,
   isLoading,
-  onToggleSidebar
+  onToggleSidebar,
+  selectedCount = 0,
+  onCopyTo
 }) {
   const [isEditingPath, setIsEditingPath] = useState(false);
   const [manualPath, setManualPath] = useState(currentPath);
@@ -161,6 +164,18 @@ export default function FileTopBar({
 
         {/* Action Buttons */}
         <div className="flex items-center gap-1 shrink-0">
+          {/* Copy To Action Button (visible when selectedCount > 0) */}
+          {selectedCount > 0 && (
+            <button
+              onClick={onCopyTo}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-medium rounded-md text-xs shadow-sm transition-colors animate-in fade-in zoom-in-95 duration-100"
+              title={`Copy ${selectedCount} selected item${selectedCount > 1 ? 's' : ''} to destination`}
+            >
+              <FolderInput className="w-3.5 h-3.5" />
+              <span>Copy To ({selectedCount})</span>
+            </button>
+          )}
+
           {/* Desktop-Only Action Buttons (Hidden on mobile where FAB is used) */}
           <button
             onClick={onCreateFolder}

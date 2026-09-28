@@ -600,6 +600,35 @@ async function searchFiles(baseDir, query, contentSearch = false, isRegex = fals
   return results;
 }
 
+async function autocompleteDirectories(baseDir, prefix = '') {
+  try {
+    const entries = await fsp.readdir(baseDir, { withFileTypes: true });
+    const prefixLower = prefix.toLowerCase();
+    const matches = [];
+
+    for (const dirent of entries) {
+      if (prefix === '' || dirent.name.toLowerCase().startsWith(prefixLower)) {
+        let isDir = dirent.isDirectory();
+        if (!isDir && dirent.isSymbolicLink()) {
+          try {
+            const st = await fsp.stat(path.join(baseDir, dirent.name));
+            if (st.isDirectory()) isDir = true;
+          } catch {}
+        }
+        if (isDir) {
+          const fullPath = baseDir === '/' ? `/${dirent.name}` : `${baseDir}/${dirent.name}`;
+          matches.push(fullPath);
+        }
+      }
+    }
+
+    matches.sort((a, b) => a.localeCompare(b));
+    return matches;
+  } catch {
+    return [];
+  }
+}
+
 module.exports = {
   sanitizePath,
   formatPermissions,
@@ -617,5 +646,6 @@ module.exports = {
   moveItems,
   deletePermanent,
   getMounts,
-  searchFiles
+  searchFiles,
+  autocompleteDirectories
 };

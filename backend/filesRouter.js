@@ -35,6 +35,12 @@ function enforceDirectoryJail(req, res, next) {
   if (typeof req.query.destination === 'string') candidatePaths.push(req.query.destination);
   if (typeof req.query.file === 'string') candidatePaths.push(req.query.file);
   if (typeof req.query.dir === 'string') candidatePaths.push(req.query.dir);
+  if (typeof req.query.query === 'string' && req.path === '/autocomplete') {
+    const rawQ = req.query.query.trim();
+    const lastSlash = rawQ.lastIndexOf('/');
+    const baseDir = lastSlash >= 0 ? rawQ.substring(0, lastSlash + 1) : '/';
+    candidatePaths.push(baseDir || '/');
+  }
 
   if (req.body) {
     if (typeof req.body.path === 'string') candidatePaths.push(req.body.path);
@@ -125,6 +131,48 @@ router.get('/list', async (req, res) => {
     const showHidden = req.query.showHidden === 'true';
     const data = await files.listDirectory(dirPath, showHidden);
     res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 1b. Path Autocomplete (Directories only)
+router.get('/autocomplete', async (req, res) => {
+  try {
+    const rawQuery = (req.query.query || '').trim();
+    if (rawQuery.includes('\0')) {
+      return res.status(400).json({ error: 'Null byte injection detected in path.' });
+    }
+    if (rawQuery.includes('..')) {
+      return res.status(403).json({ error: 'Path traversal forbidden: relative parent traversal ("..") is blocked.' });
+    }
+
+    const cleanQuery = rawQuery.startsWith('/') ? rawQuery : '/' + rawQuery;
+    const lastSlash = cleanQuery.lastIndexOf('/');
+    let baseDir = cleanQuery.substring(0, lastSlash + 1);
+    let prefix = cleanQuery.substring(lastSlash + 1);
+
+    baseDir = path.resolve('/', baseDir || '/');
+
+    if (baseDir === '/etc/shadow' || baseDir === '/etc/gshadow') {
+      return res.status(403).json({ error: 'Access to system authentication files is strictly forbidden.' });
+    }
+
+    // Enforce FGAC for custom role
+    if (req.user?.role === 'custom') {
+      const allowedDirs = req.user?.granular_policies?.resources?.allowed_directories || [];
+      const isAllowed = allowedDirs.length > 0 && allowedDirs.some((allowed) => isPathInside(baseDir, allowed));
+      if (!isAllowed) {
+        return res.status(403).json({
+          error: 'Forbidden: Path outside allowed directory policy.',
+          requestedPath: baseDir,
+          allowedDirectories: allowedDirs
+        });
+      }
+    }
+
+    const matches = await files.autocompleteDirectories(baseDir, prefix);
+    res.json(matches);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

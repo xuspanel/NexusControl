@@ -19,6 +19,7 @@ import {
   Files,
   Image as ImageIcon,
   Eye,
+  FolderInput,
   X
 } from 'lucide-react';
 import { getFileIcon, isImageFile, isPdfFile } from './fileIcons';
@@ -35,6 +36,7 @@ export default function FileContextMenu({
   onViewHex,
   onDownload,
   onCopy,
+  onCopyTo,
   onCut,
   onPaste,
   onDuplicate,
@@ -244,6 +246,23 @@ export default function FileContextMenu({
             </div>
             <span className="text-[10px] text-zinc-400 dark:text-zinc-500 font-mono hidden sm:inline">Ctrl+C</span>
           </button>
+
+          {onCopyTo && (
+            <button
+              onClick={() => {
+                onClose();
+                onCopyTo(isMultiple ? null : targetItem);
+              }}
+              className={`w-full flex items-center justify-between px-3 py-2.5 sm:py-1.5 hover:bg-zinc-100 dark:hover:bg-zinc-800/80 text-zinc-700 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-white transition-colors text-left rounded-lg sm:rounded ${
+                isMobile ? 'min-h-[44px] text-sm' : 'text-xs'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <FolderInput className="w-4 h-4 text-blue-500 shrink-0" />
+                <span>Copy To...</span>
+              </div>
+            </button>
+          )}
 
           <button
             onClick={() => {

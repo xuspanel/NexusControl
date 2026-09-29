@@ -177,6 +177,20 @@ export default function CommandPalette({
         }
       },
       {
+        id: 'manage_mysql',
+        module: 'mysql',
+        type: 'action',
+        category: 'Quick Actions',
+        label: 'Manage MySQL / MariaDB Databases',
+        description: 'View database catalogs, Data Grid, schema builder & execute SQL queries',
+        icon: Database,
+        shortcut: 'Alt + M',
+        roles: ['superadmin', 'operator', 'viewer'],
+        action: () => {
+          onSelectTab('mysql');
+        }
+      },
+      {
         id: 'manage_redis',
         module: 'redis',
         type: 'action',

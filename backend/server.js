@@ -40,6 +40,8 @@ const redisRouter = require('./redisRouter');
 const cronRouter = require('./cronRouter');
 const processRouter = require('./processRouter');
 const securityRouter = require('./securityRouter');
+const mysqlEngine = require('./mysqlEngine');
+const mysqlRouter = require('./mysqlRouter');
 
 // Ensure system storage directories exist on boot
 trash.initTrash().then(() => console.log('[BOOT] Trash directory initialized at /opt/NexusControl/.trash')).catch(err => console.error('[BOOT ERROR] Trash init:', err));
@@ -741,10 +743,14 @@ app.use('/api/process', auth.authMiddleware, processRouter);
 // Protected Firewall & Intrusion Defense Endpoints
 app.use('/api/security', auth.authMiddleware, securityRouter);
 
+// Protected MySQL / MariaDB Database Manager Endpoints
+app.use('/api/mysql', auth.authMiddleware, mysqlRouter);
+
 if (process.env.NODE_ENV !== 'test') {
   dockerEngine.startBackgroundSampling(3500);
   scheduler.initScheduler();
   postgresEngine.initPostgresSuperuser();
+  mysqlEngine.initMysqlSuperuser();
 }
 
 // Health check endpoint for internal monitoring

@@ -192,6 +192,16 @@ export const NAV_ITEMS = [
     shortcut: 'f',
     primaryMobile: false,
     roles: ['superadmin', 'operator', 'viewer']
+  },
+  {
+    id: 'mysql',
+    label: 'MySQL / MariaDB',
+    description: 'MySQL & MariaDB databases, introspection, Data Grid & SQL terminal',
+    icon: 'Database',
+    iconComponent: Database,
+    shortcut: 'm',
+    primaryMobile: false,
+    roles: ['superadmin', 'operator', 'viewer']
   }
 ];
 
@@ -200,9 +210,28 @@ export const NAV_SHORTCUTS = NAV_ITEMS.reduce((acc, item) => {
   return acc;
 }, {});
 
+const ALIAS_MAP = {
+  telemetry: 'overview',
+  domains: 'vhosts',
+  vpn: 'network',
+  wireguard: 'network',
+  settings: 'updates',
+  optimizer: 'wizard',
+  postgres: 'database',
+  mariadb: 'mysql',
+  cache: 'redis',
+  tasks: 'cron',
+  crontab: 'cron',
+  apps: 'process',
+  applications: 'process',
+  paas: 'process',
+  firewall: 'security',
+  fail2ban: 'security',
+  intrusion: 'security'
+};
+
 export function getNavItem(id) {
-  // Support aliases: 'telemetry' -> 'overview', 'domains' -> 'vhosts', 'vpn' -> 'network', 'wireguard' -> 'network', 'settings' -> 'updates', 'optimizer' -> 'wizard', 'postgres' -> 'database', 'cache' -> 'redis', 'tasks' -> 'cron', 'crontab' -> 'cron', 'apps' -> 'process', 'applications' -> 'process', 'paas' -> 'process', 'firewall' -> 'security', 'fail2ban' -> 'security', 'intrusion' -> 'security'
-  const normalized = id === 'telemetry' ? 'overview' : id === 'domains' ? 'vhosts' : (id === 'vpn' || id === 'wireguard') ? 'network' : id === 'settings' ? 'updates' : id === 'optimizer' ? 'wizard' : id === 'postgres' ? 'database' : id === 'cache' ? 'redis' : (id === 'tasks' || id === 'crontab') ? 'cron' : (id === 'apps' || id === 'applications' || id === 'paas') ? 'process' : (id === 'firewall' || id === 'fail2ban' || id === 'intrusion') ? 'security' : id;
+  const normalized = ALIAS_MAP[id] || id;
   return NAV_ITEMS.find(item => item.id === normalized) || NAV_ITEMS[0];
 }
 

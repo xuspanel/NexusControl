@@ -27,6 +27,7 @@ import RedisManager from './components/redis/RedisManager';
 import CronManager from './components/cron/CronManager';
 import ProcessAppManager from './components/process/ProcessAppManager';
 import SecurityView from './components/security/SecurityView';
+import MysqlManager from './components/mysql/MysqlManager';
 import TwoFactorBanner from './components/TwoFactorBanner';
 import { AuthProvider } from './context/AuthContext';
 
@@ -306,6 +307,10 @@ export default function App() {
         ) : activeTab === 'database' || activeTab === 'postgres' ? (
           <main className="max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-4">
             <PostgresManager token={token} onShowToast={showToast} onNavigateTab={setActiveTab} />
+          </main>
+        ) : activeTab === 'mysql' || activeTab === 'mariadb' ? (
+          <main className="max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-4">
+            <MysqlManager token={token} onShowToast={showToast} onNavigateTab={setActiveTab} />
           </main>
         ) : activeTab === 'redis' || activeTab === 'cache' ? (
           <main className="max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-4">

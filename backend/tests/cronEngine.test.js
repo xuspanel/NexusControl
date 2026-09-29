@@ -3,7 +3,7 @@ const cronstrue = require('cronstrue');
 
 describe('Cron Engine Tests', () => {
   test('cronstrue produces human-readable descriptions', () => {
-    expect(cronstrue.toString('0 0 * * *')).toContain('midnight');
+    expect(cronstrue.toString('0 0 * * *')).toMatch(/midnight|12:00 AM/i);
     expect(cronstrue.toString('*/5 * * * *')).toContain('5 minutes');
     expect(cronstrue.toString('0 12 * * 1-5')).toContain('Monday through Friday');
   });

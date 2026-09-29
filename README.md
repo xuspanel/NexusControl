@@ -158,6 +158,14 @@ NexusControl turns your Linux VPS into a zero-dependency PaaS deployment engine 
 - **Offline GeoIP Resolution:** Enriches attacker IPs with zero-latency offline city and country flag lookups (`geoip-lite`), visualizing attack origins directly on the dashboard.
 - **Manual Threat Mitigation:** Provides one-click instant manual IP banning to immediately isolate suspicious network traffic.
 
+### 🐬 MySQL & MariaDB Management Module
+- **Zero-Dependency Superuser Engine:** Native pooled connectivity via `mysql2/promise` with automatic superuser initialization and cached pool management per database.
+- **Deep Catalog & Schema Introspection:** Introspects databases, base tables, views, columns, keys (PRI, MUL, UNI), auto-increments, and foreign key relations via `information_schema`.
+- **Interactive Data Grid & Inline CRUD:** Paginated data grid with inline cell mutations, multi-row deletion, sorting, filtering, and instant CSV/JSON/SQL exports.
+- **Visual Schema Builder with Native Column Reordering:** Full interactive schema builder supporting MySQL's native `FIRST` and `AFTER` column positioning within transactional batch mutations.
+- **Native mysqldump Streaming:** Direct chunked streaming of full, schema-only, or data-only dumps directly to browser downloads without temporary disk writes.
+- **Monaco SQL Terminal & Global Search:** Interactive Monaco query runner with MySQL syntax highlighting, query benchmarks, and full-database cross-table text search.
+
 ---
 
 ## 3. Deployment & Lifecycle Scripts

@@ -462,40 +462,78 @@ app.get('/api/system/logs', auth.authMiddleware, async (req, res) => {
 
 app.get('/api/system/updates', auth.authMiddleware, async (req, res) => {
   try {
-    // 1. Get local version
-    let currentVersion = '1.0.0';
-    const localPkgPath = path.join(__dirname, 'package.json');
-    const rootPkgPath = path.join(__dirname, '..', 'package.json');
+    // 1. Get local version dynamically from disk (bypassing any Node module memory caching)
+    let localVersion = '1.0.0';
+    const pkgPath = path.join(__dirname, '..', 'package.json');
+    const backendPkgPath = path.join(__dirname, 'package.json');
 
-    if (fs.existsSync(localPkgPath)) {
-      const localPkg = JSON.parse(fs.readFileSync(localPkgPath, 'utf8'));
-      currentVersion = localPkg.version || currentVersion;
-    } else if (fs.existsSync(rootPkgPath)) {
-      const rootPkg = JSON.parse(fs.readFileSync(rootPkgPath, 'utf8'));
-      currentVersion = rootPkg.version || currentVersion;
+    try {
+      if (fs.existsSync(pkgPath)) {
+        localVersion = JSON.parse(fs.readFileSync(pkgPath, 'utf8')).version || localVersion;
+      } else if (fs.existsSync(backendPkgPath)) {
+        localVersion = JSON.parse(fs.readFileSync(backendPkgPath, 'utf8')).version || localVersion;
+      }
+    } catch (readErr) {
+      console.warn('[Updates] Failed reading local package.json:', readErr.message);
     }
+    const currentVersion = localVersion;
 
-    // 2. Fetch remote version and changelog (using native fetch)
+    // 2. Fetch remote version and changelog with dynamic cache-busting query parameter & headers
     let latestVersion = currentVersion;
     let changelog = '';
 
+    // Determine target repository (dynamic origin extraction with fallback)
+    let repoSlug = 'xuspanel/NexusControl';
     try {
-      const remotePkgRes = await fetch('https://raw.githubusercontent.com/xuspanel/NexusControl/main/backend/package.json', {
+      const remoteOrigin = execSync('git config --get remote.origin.url', {
+        cwd: path.join(__dirname, '..'),
+        encoding: 'utf8',
+        timeout: 1000
+      }).trim();
+      const match = remoteOrigin.match(/github\.com[/:]([^/]+\/[^/.]+)/);
+      if (match && match[1]) {
+        repoSlug = match[1];
+      }
+    } catch (_) {}
+
+    const cacheBuster = Date.now();
+    const fetchHeaders = {
+      'User-Agent': 'NexusControl-UpdateChecker',
+      'Cache-Control': 'no-cache',
+      'Pragma': 'no-cache'
+    };
+
+    // Fetch remote package.json (root package.json first, fallback to backend/package.json)
+    try {
+      const remoteUrl = `https://raw.githubusercontent.com/${repoSlug}/main/package.json?t=${cacheBuster}`;
+      const remotePkgRes = await fetch(remoteUrl, {
         signal: AbortSignal.timeout(6000),
-        headers: { 'User-Agent': 'NexusControl-UpdateChecker' }
+        headers: fetchHeaders
       });
       if (remotePkgRes.ok) {
         const remotePkg = await remotePkgRes.json();
         latestVersion = remotePkg.version || currentVersion;
+      } else {
+        const fallbackUrl = `https://raw.githubusercontent.com/${repoSlug}/main/backend/package.json?t=${cacheBuster}`;
+        const fallbackRes = await fetch(fallbackUrl, {
+          signal: AbortSignal.timeout(6000),
+          headers: fetchHeaders
+        });
+        if (fallbackRes.ok) {
+          const fallbackPkg = await fallbackRes.json();
+          latestVersion = fallbackPkg.version || currentVersion;
+        }
       }
     } catch (fetchErr) {
       console.warn('[Updates] Remote package.json fetch warning:', fetchErr.message);
     }
 
+    // Fetch remote CHANGELOG.md
     try {
-      const changelogRes = await fetch('https://raw.githubusercontent.com/xuspanel/NexusControl/main/CHANGELOG.md', {
+      const changelogUrl = `https://raw.githubusercontent.com/${repoSlug}/main/CHANGELOG.md?t=${cacheBuster}`;
+      const changelogRes = await fetch(changelogUrl, {
         signal: AbortSignal.timeout(6000),
-        headers: { 'User-Agent': 'NexusControl-UpdateChecker' }
+        headers: fetchHeaders
       });
       if (changelogRes.ok) {
         changelog = await changelogRes.text();
@@ -517,6 +555,7 @@ app.get('/api/system/updates', auth.authMiddleware, async (req, res) => {
     const updateAvailable = currentVersion !== latestVersion;
 
     res.json({
+      localVersion,
       currentVersion,
       latestVersion,
       updateAvailable,

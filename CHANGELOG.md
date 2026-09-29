@@ -5,6 +5,11 @@ All notable changes to NexusControl will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.12.3] - 2026-09-29
+
+### Fixed
+- **Fixed:** System Update checker now bypasses GitHub CDN caching for instant update detection and dynamically reads local version state.
+
 ## [v1.12.2] - 2026-09-29
 
 ### UI/UX

@@ -54,8 +54,12 @@ export default function UpdatesView({ token, onShowToast }) {
     setError(null);
 
     try {
-      const res = await fetch('/api/system/updates', {
-        headers: authHeaders
+      const res = await fetch(`/api/system/updates?t=${Date.now()}`, {
+        headers: {
+          ...authHeaders,
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache'
+        }
       });
 
       if (!res.ok) {
@@ -63,12 +67,25 @@ export default function UpdatesView({ token, onShowToast }) {
       }
 
       const data = await res.json();
+
+      // If backend was unable to reach GitHub for changelog, attempt direct fetch with cache-busting
+      if (!data.changelog || data.changelog.startsWith('# Changelog\n\nNo changelog data')) {
+        try {
+          const directChangelogRes = await fetch(`https://raw.githubusercontent.com/xuspanel/NexusControl/main/CHANGELOG.md?t=${Date.now()}`, {
+            headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' }
+          });
+          if (directChangelogRes.ok) {
+            data.changelog = await directChangelogRes.text();
+          }
+        } catch (_) {}
+      }
+
       setUpdateData(data);
       if (isManualRefresh && onShowToast) {
         onShowToast(
           data.updateAvailable
             ? `New release v${data.latestVersion} is available!`
-            : `NexusControl is up to date (v${data.currentVersion}).`,
+            : `NexusControl is up to date (v${data.currentVersion || data.localVersion}).`,
           data.updateAvailable ? 'warning' : 'success'
         );
       }
@@ -169,8 +186,12 @@ export default function UpdatesView({ token, onShowToast }) {
         // Start polling loop every 3 seconds
         pollIntervalRef.current = setInterval(async () => {
           try {
-            const checkRes = await fetch('/api/system/updates', {
-              headers: authHeaders
+            const checkRes = await fetch(`/api/system/updates?t=${Date.now()}`, {
+              headers: {
+                ...authHeaders,
+                'Cache-Control': 'no-cache',
+                'Pragma': 'no-cache'
+              }
             });
 
             // Once 200 OK returns, the new daemon is officially online

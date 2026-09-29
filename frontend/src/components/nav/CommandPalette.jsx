@@ -272,16 +272,18 @@ export default function CommandPalette({
 
   // Combined searchable entries
   const allEntries = useMemo(() => {
-    const navEntries = getNavItemsForRole(role, granularPolicies).map(item => ({
-      id: item.id,
-      type: 'navigation',
-      category: 'Navigation',
-      label: `Jump to ${item.label}`,
-      description: item.description,
-      icon: item.iconComponent,
-      shortcut: `Alt + ${item.shortcut}`,
-      action: () => onSelectTab(item.id)
-    }));
+    const navEntries = getNavItemsForRole(role, granularPolicies)
+      .filter(item => !item.isHeader)
+      .map(item => ({
+        id: item.id,
+        type: 'navigation',
+        category: 'Navigation',
+        label: `Jump to ${item.label}`,
+        description: item.description,
+        icon: item.iconComponent,
+        shortcut: `Alt + ${item.shortcut}`,
+        action: () => onSelectTab(item.id)
+      }));
 
     return [...navEntries, ...quickActions];
   }, [role, granularPolicies, quickActions, onSelectTab]);

@@ -20,9 +20,10 @@ import {
 
 /**
  * Centralized Navigation Registry for NexusControl Adaptive Tri-Mode Navigation
- * With Granular Multi-User Role-Based Access Control (RBAC) Mapping
+ * With Granular Multi-User Role-Based Access Control (RBAC) Mapping & Categorization
  */
 export const NAV_ITEMS = [
+  // [CORE] (No header needed for first item)
   {
     id: 'overview',
     label: 'Overview',
@@ -32,6 +33,87 @@ export const NAV_ITEMS = [
     shortcut: '1',
     primaryMobile: true,
     roles: ['superadmin', 'operator', 'viewer']
+  },
+
+  // [HOSTING & COMPUTE]
+  {
+    isHeader: true,
+    id: 'header-applications',
+    label: 'Applications'
+  },
+  {
+    id: 'process',
+    label: 'App Manager',
+    description: 'PaaS application runner, systemd supervisor, automated restarts & live logs',
+    icon: 'Layers',
+    iconComponent: Layers,
+    shortcut: 'p',
+    primaryMobile: false,
+    roles: ['superadmin', 'operator', 'viewer']
+  },
+  {
+    id: 'docker',
+    label: 'Docker',
+    description: 'Container orchestration, live CPU/RAM stats, inspect & lifecycle',
+    icon: 'Boxes',
+    iconComponent: Boxes,
+    shortcut: '4',
+    primaryMobile: true,
+    roles: ['superadmin', 'operator']
+  },
+  {
+    id: 'vhosts',
+    label: 'Domains & Proxy',
+    description: 'Virtual hosts, reverse proxy, static sites & Let\'s Encrypt SSL',
+    icon: 'Globe',
+    iconComponent: Globe,
+    shortcut: '5',
+    primaryMobile: false,
+    roles: ['superadmin', 'operator']
+  },
+
+  // [DATABASES]
+  {
+    isHeader: true,
+    id: 'header-data-cache',
+    label: 'Data & Cache'
+  },
+  {
+    id: 'database',
+    label: 'PostgreSQL',
+    description: 'Postgres clusters, database catalog supervisor & Superuser pool',
+    icon: 'Database',
+    iconComponent: Database,
+    shortcut: 'd',
+    primaryMobile: false,
+    roles: ['superadmin', 'operator', 'viewer']
+  },
+  {
+    id: 'mysql',
+    label: 'MySQL / MariaDB',
+    description: 'MySQL & MariaDB databases, introspection, Data Grid & SQL terminal',
+    icon: 'Database',
+    iconComponent: Database,
+    shortcut: 'm',
+    primaryMobile: false,
+    roles: ['superadmin', 'operator', 'viewer']
+  },
+  {
+    id: 'redis',
+    label: 'Redis Cache',
+    description: 'In-memory key-value cache, keyspace inspector, TTL & raw CLI',
+    icon: 'Zap',
+    iconComponent: Zap,
+    shortcut: 'r',
+    primaryMobile: false,
+    roles: ['superadmin', 'operator', 'viewer']
+  },
+
+  // [SYSTEM INTERACTION]
+  {
+    isHeader: true,
+    id: 'header-system',
+    label: 'System'
   },
   {
     id: 'files',
@@ -54,44 +136,41 @@ export const NAV_ITEMS = [
     roles: ['superadmin']
   },
   {
-    id: 'docker',
-    label: 'Docker',
-    description: 'Container orchestration, live CPU/RAM stats, inspect & lifecycle',
-    icon: 'Boxes',
-    iconComponent: Boxes,
-    shortcut: '4',
-    primaryMobile: true,
-    roles: ['superadmin', 'operator']
-  },
-  {
-    id: 'vhosts',
-    label: 'Domains & Proxy',
-    description: 'Virtual hosts, reverse proxy, static sites & Let\'s Encrypt SSL',
-    icon: 'Globe',
-    iconComponent: Globe,
-    shortcut: '5',
+    id: 'cron',
+    label: 'Cron & Tasks',
+    description: 'Crontab supervisor, systemd timers, visual scheduler & execution logs',
+    icon: 'Clock',
+    iconComponent: Clock,
+    shortcut: 'c',
     primaryMobile: false,
-    roles: ['superadmin', 'operator']
+    roles: ['superadmin', 'operator', 'viewer']
+  },
+
+  // [SECURITY]
+  {
+    isHeader: true,
+    id: 'header-security',
+    label: 'Security'
   },
   {
-    id: 'audit',
-    label: 'Audit Log',
-    description: 'Tamper-evident SHA-256 cryptographic ledger & integrity verification',
-    icon: 'ShieldCheck',
-    iconComponent: ShieldCheck,
-    shortcut: '6',
+    id: 'security',
+    label: 'Firewall & Shield',
+    description: 'Host firewall (UFW/Firewalld), port rules & Fail2ban intrusion defense',
+    icon: 'ShieldAlert',
+    iconComponent: ShieldAlert,
+    shortcut: 'f',
     primaryMobile: false,
     roles: ['superadmin', 'operator', 'viewer']
   },
   {
-    id: 'backups',
-    label: 'Backups',
-    description: 'Zstandard system snapshots, scheduled cron jobs & atomic restore',
-    icon: 'Archive',
-    iconComponent: Archive,
-    shortcut: '7',
+    id: 'network',
+    label: 'Zero Trust VPN',
+    description: 'WireGuard encrypted mesh tunnel, peer provisioning & QR mobile onboarding',
+    icon: 'Shield',
+    iconComponent: Shield,
+    shortcut: '9',
     primaryMobile: false,
-    roles: ['superadmin', 'operator']
+    roles: ['superadmin']
   },
   {
     id: 'users',
@@ -104,12 +183,39 @@ export const NAV_ITEMS = [
     roles: ['superadmin']
   },
   {
-    id: 'network',
-    label: 'Zero Trust VPN',
-    description: 'WireGuard encrypted mesh tunnel, peer provisioning & QR mobile onboarding',
-    icon: 'Shield',
-    iconComponent: Shield,
-    shortcut: '9',
+    id: 'audit',
+    label: 'Audit Log',
+    description: 'Tamper-evident SHA-256 cryptographic ledger & integrity verification',
+    icon: 'ShieldCheck',
+    iconComponent: ShieldCheck,
+    shortcut: '6',
+    primaryMobile: false,
+    roles: ['superadmin', 'operator', 'viewer']
+  },
+
+  // [OPERATIONS]
+  {
+    isHeader: true,
+    id: 'header-maintenance',
+    label: 'Maintenance'
+  },
+  {
+    id: 'backups',
+    label: 'Backups',
+    description: 'Zstandard system snapshots, scheduled cron jobs & atomic restore',
+    icon: 'Archive',
+    iconComponent: Archive,
+    shortcut: '7',
+    primaryMobile: false,
+    roles: ['superadmin', 'operator']
+  },
+  {
+    id: 'wizard',
+    label: 'Optimization Wizard',
+    description: 'Heuristic tool audit, dormant daemon detector & deep purge cleaner',
+    icon: 'Wand2',
+    iconComponent: Wand2,
+    shortcut: 'w',
     primaryMobile: false,
     roles: ['superadmin']
   },
@@ -132,81 +238,13 @@ export const NAV_ITEMS = [
     shortcut: 'u',
     primaryMobile: false,
     roles: ['superadmin', 'operator', 'viewer']
-  },
-  {
-    id: 'wizard',
-    label: 'Optimization Wizard',
-    description: 'Heuristic tool audit, dormant daemon detector & deep purge cleaner',
-    icon: 'Wand2',
-    iconComponent: Wand2,
-    shortcut: 'w',
-    primaryMobile: false,
-    roles: ['superadmin']
-  },
-  {
-    id: 'database',
-    label: 'PostgreSQL',
-    description: 'Postgres clusters, database catalog supervisor & Superuser pool',
-    icon: 'Database',
-    iconComponent: Database,
-    shortcut: 'd',
-    primaryMobile: false,
-    roles: ['superadmin', 'operator', 'viewer']
-  },
-  {
-    id: 'redis',
-    label: 'Redis Cache',
-    description: 'In-memory key-value cache, keyspace inspector, TTL & raw CLI',
-    icon: 'Zap',
-    iconComponent: Zap,
-    shortcut: 'r',
-    primaryMobile: false,
-    roles: ['superadmin', 'operator', 'viewer']
-  },
-  {
-    id: 'cron',
-    label: 'Cron & Tasks',
-    description: 'Crontab supervisor, systemd timers, visual scheduler & execution logs',
-    icon: 'Clock',
-    iconComponent: Clock,
-    shortcut: 'c',
-    primaryMobile: false,
-    roles: ['superadmin', 'operator', 'viewer']
-  },
-  {
-    id: 'process',
-    label: 'App Manager',
-    description: 'PaaS application runner, systemd supervisor, automated restarts & live logs',
-    icon: 'Layers',
-    iconComponent: Layers,
-    shortcut: 'p',
-    primaryMobile: false,
-    roles: ['superadmin', 'operator', 'viewer']
-  },
-  {
-    id: 'security',
-    label: 'Firewall & Shield',
-    description: 'Host firewall (UFW/Firewalld), port rules & Fail2ban intrusion defense',
-    icon: 'ShieldAlert',
-    iconComponent: ShieldAlert,
-    shortcut: 'f',
-    primaryMobile: false,
-    roles: ['superadmin', 'operator', 'viewer']
-  },
-  {
-    id: 'mysql',
-    label: 'MySQL / MariaDB',
-    description: 'MySQL & MariaDB databases, introspection, Data Grid & SQL terminal',
-    icon: 'Database',
-    iconComponent: Database,
-    shortcut: 'm',
-    primaryMobile: false,
-    roles: ['superadmin', 'operator', 'viewer']
   }
 ];
 
 export const NAV_SHORTCUTS = NAV_ITEMS.reduce((acc, item) => {
-  acc[item.shortcut] = item.id;
+  if (!item.isHeader && item.shortcut) {
+    acc[item.shortcut] = item.id;
+  }
   return acc;
 }, {});
 
@@ -232,7 +270,18 @@ const ALIAS_MAP = {
 
 export function getNavItem(id) {
   const normalized = ALIAS_MAP[id] || id;
-  return NAV_ITEMS.find(item => item.id === normalized) || NAV_ITEMS[0];
+  return NAV_ITEMS.find(item => !item.isHeader && item.id === normalized) || NAV_ITEMS.find(item => !item.isHeader);
+}
+
+function pruneEmptyHeaders(items) {
+  return items.filter((item, index, arr) => {
+    if (!item.isHeader) return true;
+    for (let i = index + 1; i < arr.length; i++) {
+      if (arr[i].isHeader) return false;
+      return true;
+    }
+    return false;
+  });
 }
 
 export function getNavItemsForRole(role, granularPolicies = null) {
@@ -242,8 +291,9 @@ export function getNavItemsForRole(role, granularPolicies = null) {
   }
   if (activeRole === 'custom') {
     const modules = granularPolicies?.modules || {};
-    return NAV_ITEMS.filter(item => Boolean(modules[item.id]));
+    const filtered = NAV_ITEMS.filter(item => item.isHeader || Boolean(modules[item.id]));
+    return pruneEmptyHeaders(filtered);
   }
-  return NAV_ITEMS.filter(item => !item.roles || item.roles.includes(activeRole));
+  const filtered = NAV_ITEMS.filter(item => item.isHeader || !item.roles || item.roles.includes(activeRole));
+  return pruneEmptyHeaders(filtered);
 }
-

@@ -31,7 +31,7 @@ export default function MobileNav({
   const [isMoreOpen, setIsMoreOpen] = useState(false);
   const { role, granularPolicies } = useAuth();
 
-  const allowedItems = getNavItemsForRole(role, granularPolicies);
+  const allowedItems = getNavItemsForRole(role, granularPolicies).filter(item => !item.isHeader);
   // Primary mobile items
   const primaryItems = allowedItems.filter(item => item.primaryMobile);
   // Secondary items

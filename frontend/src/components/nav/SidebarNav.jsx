@@ -96,13 +96,26 @@ export default function SidebarNav({
 
       {/* 3. Navigation Links List */}
       <nav className="flex-1 overflow-y-auto px-2 space-y-1 py-1">
-        {!collapsed && (
-          <div className="px-2 py-1 text-[10px] uppercase tracking-wider font-mono font-semibold text-zinc-400 dark:text-zinc-500">
-            System Modules
-          </div>
-        )}
-
         {navItems.map((item) => {
+          if (item.isHeader) {
+            if (collapsed) {
+              return (
+                <div
+                  key={item.id}
+                  className="my-2.5 border-t border-zinc-200 dark:border-zinc-800/80 mx-2"
+                />
+              );
+            }
+            return (
+              <div
+                key={item.id}
+                className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mt-6 mb-2 px-4"
+              >
+                {item.label}
+              </div>
+            );
+          }
+
           const isActive = activeTab === item.id || (item.id === 'overview' && activeTab === 'telemetry') || (item.id === 'vhosts' && activeTab === 'domains');
           const IconComponent = item.iconComponent;
 

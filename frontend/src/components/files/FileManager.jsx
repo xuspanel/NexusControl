@@ -792,8 +792,18 @@ export default function FileManager({ token, onShowToast }) {
   // Keyboard Shortcuts Listener
   useEffect(() => {
     const handleKeyDown = (e) => {
-      // Do not intercept hotkeys if inside an input or modal editor
-      if (['INPUT', 'TEXTAREA'].includes(e.target.tagName)) return;
+      // 1. THE ACTIVE ELEMENT GUARD
+      // Do not intercept hotkeys if inside an input, textarea, select, contenteditable, or Monaco Editor
+      const activeElement = document.activeElement;
+      const isInput = activeElement && ['INPUT', 'TEXTAREA', 'SELECT'].includes(activeElement.tagName);
+      const isTargetInput = e.target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName);
+      const isContentEditable = Boolean(activeElement?.isContentEditable || e.target?.isContentEditable);
+      const isMonacoEditor = Boolean(
+        (e.target?.closest && e.target.closest('.monaco-editor') !== null) ||
+        (activeElement?.closest && activeElement.closest('.monaco-editor') !== null)
+      );
+
+      if (isInput || isTargetInput || isContentEditable || isMonacoEditor) return;
       if (activeEditorFile || activeHexFile || chmodTargetItem || isUploadOpen || promptModal) return;
 
       if ((e.ctrlKey || e.metaKey) && e.key === 'c') {

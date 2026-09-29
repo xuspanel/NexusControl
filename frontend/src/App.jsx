@@ -125,24 +125,42 @@ export default function App() {
     }
   }, [toggleTheme, showToast]);
 
-  // Global Hotkeys: Alt+1..6, Ctrl+1..6, Cmd+K / Ctrl+K
+  // Global Hotkeys: Alt+1..9, Alt+letter, Ctrl+0..9, Cmd+K / Ctrl+K
   useEffect(() => {
     const handleKeyDown = (e) => {
-      // 1. Spotlight Command Palette Shortcut
+      // 1. THE ACTIVE ELEMENT GUARD
+      // If the user is currently focused on an INPUT, a TEXTAREA, SELECT, has contenteditable true,
+      // or is inside the Monaco Editor / Xterm Terminal, instantly return without intercepting keys.
+      const activeElement = document.activeElement;
+      const isInput = activeElement && ['INPUT', 'TEXTAREA', 'SELECT'].includes(activeElement.tagName);
+      const isTargetInput = e.target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName);
+      const isContentEditable = Boolean(activeElement?.isContentEditable || e.target?.isContentEditable);
+      // Monaco Editor uses hidden textareas and wrapper divs, so we check the closest container
+      const isMonacoEditor = Boolean(
+        (e.target?.closest && e.target.closest('.monaco-editor') !== null) ||
+        (activeElement?.closest && activeElement.closest('.monaco-editor') !== null)
+      );
+      // Xterm terminal viewport
+      const isTerminal = Boolean(
+        (e.target?.closest && e.target.closest('.xterm') !== null) ||
+        (activeElement?.closest && activeElement.closest('.xterm') !== null)
+      );
+
+      if (isInput || isTargetInput || isContentEditable || isMonacoEditor || isTerminal) {
+        return; // Let the editor or input handle its own shortcuts natively (Copy, Paste, Undo, etc.)
+      }
+
+      // 2. Spotlight Command Palette Shortcut (Cmd+K / Ctrl+K)
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         setIsCommandPaletteOpen(prev => !prev);
         return;
       }
 
-      // Disallow tab jumping when typing in input/textarea/contentEditable
-      const tag = e.target?.tagName;
-      const isInput = tag === 'INPUT' || tag === 'TEXTAREA' || e.target?.isContentEditable;
-      if (isInput) return;
-
-      // 2. Direct screen jump: Alt+1..6 or Ctrl+1..6
-      if (e.altKey || e.ctrlKey) {
-        const key = e.key;
+      // 3. Direct screen jump: Alt+key or Ctrl+0..9
+      // For letter shortcuts, require AltKey to prevent hijacking browser/OS Ctrl+C (copy), Ctrl+F (find), etc.
+      if (e.altKey || (e.ctrlKey && /^[0-9]$/.test(e.key))) {
+        const key = e.key.toLowerCase();
         if (NAV_SHORTCUTS[key]) {
           e.preventDefault();
           setActiveTab(NAV_SHORTCUTS[key]);
